@@ -150,24 +150,29 @@ FAKEGPS_TRIGGER_FILE = "/tmp/starnav_fakegps_trigger"
 _GPS_EPOCH_UNIX = 315964800   # 1980-01-06 00:00:00 UTC as Unix timestamp
 _GPS_SECS_PER_WEEK = 604800
 
-def send_fake_gps(lat, lon, alt):
-    """Send a single GPS_INPUT message with a fake 3D fix to GPS2 (gps_id=1)."""
+def send_fake_gps(lat, lon):
+    """Send a single GPS_INPUT message with a fake 2D fix to GPS2 (gps_id=1).
+
+    Altitude is deliberately omitted (ignore flag set, fix_type=2D) to prevent
+    Starlink's inaccurate altitude from poisoning the EKF.
+    """
     gps_secs   = time.time() - _GPS_EPOCH_UNIX
     week       = int(gps_secs / _GPS_SECS_PER_WEEK)
     ms_in_week = int((gps_secs % _GPS_SECS_PER_WEEK) * 1000)
-    # ignore_flags: ignore velocity (8|16) and speed accuracy (32)
+    # ignore_flags: ignore alt (1) | velocity (8|16) | speed_accuracy (32)
+    #               | horiz_accuracy (64) | vert_accuracy (128) = 249
     mav.mav.gps_input_send(
         int(time.time() * 1e6),  # time_usec
         1,                        # gps_id  (GPS2 = index 1)
-        248,                       # ignore_flags
+        249,                      # ignore_flags (alt + vel + speed/horiz/vert acc)
         ms_in_week,               # time_week_ms
         week,                     # time_week
-        3,                        # fix_type  (3 = 3D fix)
+        2,                        # fix_type  (2 = 2D fix, no altitude)
         int(lat * 1e7),           # lat  degE7
         int(lon * 1e7),           # lon  degE7
-        float(alt),               # alt  metres MSL
+        0.0,                      # alt  (ignored, flag set)
         1.1,                      # hdop
-        1.1,                      # vdop
+        0.0,                      # vdop  (no vertical info)
         0.0, 0.0, 0.0,            # vn, ve, vd  (ignored)
         0.0,                      # speed_accuracy (ignored)
         0.0,                      # horiz_accuracy  m
@@ -219,6 +224,8 @@ def write_status_file(data):
         "stable_seconds":  sf(data["stable_secs"], 1),
         "last_ack_result": data["last_ack_result"],
         "fake_gps_active": data["fake_gps_active"],
+        "is_armed":        data["is_armed"],
+        "in_air":          data["in_air"],
     }
     try:
         tmp = STATUS_FILE + ".tmp"
@@ -342,6 +349,8 @@ try:
     gps_lat = gps_lon = gps_alt = float("nan")
     ekf_lat = ekf_lon = ekf_alt = float("nan")
     roll = pitch = yaw = float("nan")
+    is_armed = False
+    relative_alt_m = 0.0
 
     # Persistent state for Starlink and derived values (fallback when inner try fails)
     star_lat = star_lon = star_alt = float("nan")
@@ -359,7 +368,7 @@ try:
             # ---- Drain MAVLink buffer, keep latest of each type ----
             while True:
                 msg = mav.recv_match(
-                    type=["GPS_RAW_INT", "GLOBAL_POSITION_INT", "ATTITUDE"],
+                    type=["GPS_RAW_INT", "GLOBAL_POSITION_INT", "ATTITUDE", "HEARTBEAT"],
                     blocking=False
                 )
                 if msg is None:
@@ -376,10 +385,13 @@ try:
                     ekf_lat = msg.lat / 1e7
                     ekf_lon = msg.lon / 1e7
                     ekf_alt = msg.alt / 1000.0  # mm -> meters
+                    relative_alt_m = msg.relative_alt / 1000.0  # mm -> meters
                 elif msg_type == "ATTITUDE":
                     roll = math.degrees(msg.roll)
                     pitch = math.degrees(msg.pitch)
                     yaw = math.degrees(msg.yaw)
+                elif msg_type == "HEARTBEAT":
+                    is_armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
 
             # ---- Read Starlink ----
             loc = starlink_grpc.get_location(context=starlink_context)
@@ -492,18 +504,21 @@ try:
                 print("No COMMAND_ACK received.")
 
         # ---- Fake GPS trigger ----
+        in_air = is_armed and relative_alt_m > 2.0
         if os.path.exists(FAKEGPS_TRIGGER_FILE):
             try:
                 os.remove(FAKEGPS_TRIGGER_FILE)
             except OSError:
                 pass
+            if in_air:
+                print("!!! WARNING: Fake GPS triggered while aircraft is in air (override) !!!")
             fake_gps_until = now_monotonic + 5.0
             print(">>> Fake GPS burst started (5 s @ 5 Hz on GPS2) <<<")
 
         if fake_gps_until is not None:
             if now_monotonic < fake_gps_until:
-                if not (math.isnan(star_lat) or math.isnan(star_lon) or math.isnan(star_alt)):
-                    send_fake_gps(star_lat, star_lon, star_alt)
+                if not (math.isnan(star_lat) or math.isnan(star_lon)):
+                    send_fake_gps(star_lat, star_lon)
             else:
                 fake_gps_until = None
                 print(">>> Fake GPS burst ended <<<")
@@ -529,6 +544,8 @@ try:
             "stable_secs":    _stable_secs,
             "last_ack_result": last_ack_result,
             "fake_gps_active": fake_gps_until is not None,
+            "is_armed":        is_armed,
+            "in_air":          in_air,
         })
 
         time.sleep(0.2)

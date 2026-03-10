@@ -273,6 +273,43 @@
         .log-ack   { color: var(--success); }
         .log-sys   { color: var(--accent); }
 
+        /* ── Warning modal ───────────────────────────── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.65);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.visible { display: flex; }
+
+        .modal-box {
+            background: var(--bg-card);
+            border: 2px solid var(--error);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .modal-box h2 {
+            color: var(--error);
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .modal-box p {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 1.25rem;
+        }
+
+        .modal-box .btn { min-width: 100px; }
+
         /* ── Scrollbar ───────────────────────────────── */
         ::-webkit-scrollbar       { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -494,6 +531,21 @@
 <div class="version-footer">
     <span id="versionCommit">commit --</span>
     <span id="updateBadge" class="update-badge" style="display:none" title="">⚠ Update available — run install.sh</span>
+</div>
+
+<!-- ── In-air fake GPS warning modal ───────────────────── -->
+<div id="fakeGpsModal" class="modal-overlay" onclick="if(event.target===this)closeFakeGpsModal()">
+    <div class="modal-box">
+        <h2>WARNING — Aircraft In Air</h2>
+        <p>
+            Enabling fake GPS while airborne could cause an <strong>EKF poisoning event</strong>
+            and uncontrolled crash. This should only be used on the ground for EKF initialisation.
+        </p>
+        <div style="display:flex;gap:0.75rem;justify-content:center">
+            <button class="btn btn-secondary" onclick="closeFakeGpsModal()">Cancel</button>
+            <button class="btn btn-danger" onclick="forceFakeGPS()">Send Anyway</button>
+        </div>
+    </div>
 </div>
 
 <!-- ── Leaflet ────────────────────────────────────────── -->
@@ -820,6 +872,9 @@ function updateStatusUI(data) {
 
     // 3D accuracy
     setText('accuracy3d', fmtM(p.accuracy_3d, 2));
+
+    // Track in-air state for fake GPS lockout
+    _aircraftInAir = !!p.in_air;
 }
 
 // ── Log streaming (SSE) ──────────────────────────────────
@@ -900,16 +955,38 @@ function clearLogs() {
 
 // ── Fake GPS burst ───────────────────────────────────────
 let _fakeGpsTimer = null;
+let _aircraftInAir = false;
 
-async function enableFakeGPS() {
+function closeFakeGpsModal() {
+    document.getElementById('fakeGpsModal').classList.remove('visible');
+}
+
+function enableFakeGPS() {
     const btn = document.getElementById('btn-fakegps');
     if (!btn || btn.disabled) return;
+
+    if (_aircraftInAir) {
+        document.getElementById('fakeGpsModal').classList.add('visible');
+        return;
+    }
+    triggerFakeGPS();
+}
+
+function forceFakeGPS() {
+    closeFakeGpsModal();
+    appendLog({ level: 'warn', source: 'webui', message: 'OVERRIDE: Fake GPS triggered while aircraft in air!' });
+    triggerFakeGPS();
+}
+
+async function triggerFakeGPS() {
+    const btn = document.getElementById('btn-fakegps');
+    if (!btn) return;
 
     try {
         const resp = await fetch(CFG.apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'fake_gps' }),
+            body: JSON.stringify({ action: 'fake_gps', force: true }),
         });
         const data = await resp.json();
         if (!data.success) {
