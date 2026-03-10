@@ -195,7 +195,6 @@ def write_status_file(data):
         "dish_address": DISH_ADDRESS,
         "mavlink_connection": MAVLINK_CONNECTION,
         "uncertainty_limit": UNCERTAINTY_LIMIT,
-        "min_stable_time": MIN_STABLE_TIME,
         "starlink": {
             "lat": sf(data["star_lat"]),
             "lon": sf(data["star_lon"]),
@@ -221,7 +220,6 @@ def write_status_file(data):
         "accuracy_3d":     sf(data["accuracy"], 3),
         "sending":         data["sending"],
         "correction":      data["correction"],
-        "stable_seconds":  sf(data["stable_secs"], 1),
         "last_ack_result": data["last_ack_result"],
         "fake_gps_active": data["fake_gps_active"],
         "is_armed":        data["is_armed"],
@@ -328,8 +326,9 @@ else:
     print("CSV logging disabled")
 
 star_unc_prev = None
-unc_below_threshold_start = None
 _last_log_cleanup = 0
+_last_send_time = 0.0
+SEND_INTERVAL = 1.0  # Send external position estimate every 1 second
 
 def wait_for_ack(mav, command_id, timeout=1.0):
     start_time = time.monotonic()
@@ -459,49 +458,39 @@ try:
 
         now_monotonic = time.monotonic()
 
-        # Track continuous low uncertainty duration
-        if star_unc_99 < UNCERTAINTY_LIMIT:
-            if unc_below_threshold_start is None:
-                unc_below_threshold_start = now_monotonic
-        else:
-            unc_below_threshold_start = None
+        # Send external position estimate every SEND_INTERVAL seconds
+        sending = False
+        if (now_monotonic - _last_send_time) >= SEND_INTERVAL:
+            if not (math.isnan(star_lat) or math.isnan(star_lon)):
+                sending = True
+                _last_send_time = now_monotonic
+                print(">>> Sending External Position Estimate <<<")
 
-        stable_long_enough = (
-            unc_below_threshold_start is not None and
-            (now_monotonic - unc_below_threshold_start) >= MIN_STABLE_TIME
-        )
-
-        # Only send if BOTH conditions are satisfied
-        if correction == "Y" or stable_long_enough:
-
-            unc_below_threshold_start = None
-            print(">>> Sending External Position Estimate <<<")
-
-            mav.mav.command_int_send(
-                TARGET_SYS, TARGET_COMP,
-                0, 43003,
-                0, 0,
-                get_transmission_time(),    # param1: transmission_time (wraps at 250s per spec)
-                0,                          # param2: processing_time (0 = unknown)
-                star_unc_1sigma,            # param3: accuracy (1 standard deviation per spec)
-                0,                          # param4: empty
-                int(star_lat * 1e7),        # param5: latitude
-                int(star_lon * 1e7),        # param6: longitude
-                math.nan                    # param7: altitude (NaN, not yet supported)
-            )
-
-            # ---- Wait for ACK ----
-            ack = wait_for_ack(mav, 43003, timeout=1.0)
-
-            if ack:
-                last_ack_result = ack.result
-                print(
-                    f"ACK Received | "
-                    f"Command: {ack.command} | "
-                    f"Result: {ack.result}"
+                mav.mav.command_int_send(
+                    TARGET_SYS, TARGET_COMP,
+                    0, 43003,
+                    0, 0,
+                    get_transmission_time(),    # param1: transmission_time (wraps at 250s per spec)
+                    0,                          # param2: processing_time (0 = unknown)
+                    star_unc_1sigma,            # param3: accuracy (1 standard deviation per spec)
+                    0,                          # param4: empty
+                    int(star_lat * 1e7),        # param5: latitude
+                    int(star_lon * 1e7),        # param6: longitude
+                    math.nan                    # param7: altitude (NaN, not yet supported)
                 )
-            else:
-                print("No COMMAND_ACK received.")
+
+                # ---- Wait for ACK ----
+                ack = wait_for_ack(mav, 43003, timeout=1.0)
+
+                if ack:
+                    last_ack_result = ack.result
+                    print(
+                        f"ACK Received | "
+                        f"Command: {ack.command} | "
+                        f"Result: {ack.result}"
+                    )
+                else:
+                    print("No COMMAND_ACK received.")
 
         # ---- Fake GPS trigger ----
         in_air = is_armed and relative_alt_m > 2.0
@@ -524,9 +513,6 @@ try:
                 print(">>> Fake GPS burst ended <<<")
 
         # Write status file for web UI (every iteration, ~5 Hz)
-        _stable_secs = None
-        if unc_below_threshold_start is not None:
-            _stable_secs = now_monotonic - unc_below_threshold_start
         write_status_file({
             "ts":             timestamp,
             "star_lat":       star_lat,       "star_lon":       star_lon,
@@ -539,9 +525,8 @@ try:
             "roll":           roll,             "pitch":         pitch,
             "yaw":            yaw,
             "accuracy":       accuracy,
-            "sending":        (correction == "Y" or stable_long_enough),
+            "sending":        sending,
             "correction":     correction,
-            "stable_secs":    _stable_secs,
             "last_ack_result": last_ack_result,
             "fake_gps_active": fake_gps_until is not None,
             "is_armed":        is_armed,

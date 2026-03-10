@@ -413,10 +413,6 @@
                     <span id="starUnc99" class="stat-value val-muted">--</span>
                 </div>
                 <div class="stat-row">
-                    <span class="stat-label">Stable time</span>
-                    <span id="stableTime" class="stat-value val-muted">--</span>
-                </div>
-                <div class="stat-row">
                     <span class="stat-label">Sending to autopilot</span>
                     <span id="sendingStatus" class="stat-value val-muted">--</span>
                 </div>
@@ -803,17 +799,6 @@ function updateStatusUI(data) {
     const uncLimit = p.uncertainty_limit || 20;
     setText('starUnc99', fmtM(unc99, 2),
         unc99 === null ? 'val-muted' : (unc99 < uncLimit ? 'val-ok' : 'val-warn'));
-
-    // Stable time
-    const stableEl = document.getElementById('stableTime');
-    if (p.stable_seconds !== null && p.stable_seconds !== undefined) {
-        stableEl.textContent = `${p.stable_seconds.toFixed(1)} s / ${p.min_stable_time} s`;
-        stableEl.className = 'stat-value ' +
-            (p.stable_seconds >= p.min_stable_time ? 'val-ok' : 'val-warn');
-    } else {
-        stableEl.textContent = `-- / ${p.min_stable_time ?? '--'} s`;
-        stableEl.className = 'stat-value val-muted';
-    }
 
     // Sending status
     const sending = !!p.sending;
