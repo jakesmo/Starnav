@@ -112,8 +112,8 @@ echo "=== Configuring dedicated web server (port 8081) ==="
 uci set uhttpd.starnav=uhttpd
 uci set "uhttpd.starnav.home=${INSTALL_DIR}/www/starnav"
 uci set uhttpd.starnav.cgi_prefix='/cgi-bin'
-uci set uhttpd.starnav.script_timeout='60'
-uci set uhttpd.starnav.network_timeout='30'
+uci set uhttpd.starnav.script_timeout='3600'
+uci set uhttpd.starnav.network_timeout='120'
 uci set uhttpd.starnav.max_requests='5'
 uci set uhttpd.starnav.tcp_keepalive='1'
 # Clear any existing listen list before (re-)adding to stay idempotent

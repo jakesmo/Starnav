@@ -128,7 +128,7 @@
             display: grid;
             grid-template-columns: 340px 1fr;
             gap: 1rem;
-            align-items: start;
+            align-items: stretch;
         }
 
         @media (max-width: 900px) {
@@ -171,6 +171,7 @@
 
         .badge-live    { background: rgba(34,197,94,.15); color: var(--success); }
         .badge-sending { background: rgba(167,139,250,.15); color: var(--send); }
+        .badge-next    { background: rgba(96,165,250,.12); color: #60a5fa; font-variant-numeric: tabular-nums; }
 
         /* ── Status rows ─────────────────────────────── */
         .stat-row {
@@ -198,7 +199,8 @@
         .val-muted   { color: var(--text-secondary); }
 
         /* ── Map ─────────────────────────────────────── */
-        .map-card { padding: 0; overflow: hidden; isolation: isolate; }
+        .map-col { display: flex; flex-direction: column; }
+        .map-card { padding: 0; overflow: hidden; isolation: isolate; display: flex; flex-direction: column; flex: 1; }
 
         .map-header {
             padding: 0.75rem 1rem;
@@ -212,6 +214,8 @@
 
         #map {
             height: 460px;
+            flex: 1 1 auto;
+            min-height: 300px;
             width: 100%;
             background: #0e1626;
         }
@@ -474,19 +478,26 @@
         </div><!-- /status-col -->
 
         <!-- ── Map Column ─────────────────────────────── -->
-        <div>
+        <div class="map-col">
             <div class="card map-card">
                 <div class="map-header">
                     <div class="card-title">
                         Satellite Map
                         <span class="badge badge-live">LIVE</span>
                     </div>
+                    <label style="margin-left:auto;display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:var(--text-secondary);cursor:pointer;">
+                        <input type="checkbox" id="autoPanCheck" checked onchange="autoPan=this.checked"> Auto-pan
+                    </label>
                 </div>
                 <div id="map"></div>
                 <div class="map-legend">
                     <div class="legend-item">
+                        <svg viewBox="0 0 32 32" width="14" height="14" style="flex-shrink:0"><polygon points="16,2 26,28 16,22 6,28" fill="#e03030" stroke="#000" stroke-width="1.5"/></svg>
+                        <span>Aircraft (Starlink live)</span>
+                    </div>
+                    <div class="legend-item">
                         <div class="legend-dot" style="background:#3b82f6;"></div>
-                        <span>Starlink position (sent to autopilot)</span>
+                        <span>Starlink position</span>
                     </div>
                     <div class="legend-item">
                         <div class="legend-dot" style="background:#f59e0b;border-radius:2px;"></div>
@@ -497,7 +508,7 @@
                         <span>Uncertainty circle (green = sending)</span>
                     </div>
                     <div class="legend-item">
-                        <div style="width:20px;height:3px;border-radius:1px;background:linear-gradient(to right,rgba(59,130,246,0.15),#3b82f6);flex-shrink:0;align-self:center;"></div>
+                        <div style="width:20px;height:3px;border-radius:1px;background:linear-gradient(to right,rgba(0,255,255,0.2),#00ffff);flex-shrink:0;align-self:center;"></div>
                         <span>60s position trail</span>
                     </div>
                 </div>
@@ -556,7 +567,7 @@ const CFG = {
     logsUrl:        'cgi-bin/logs.cgi',
     apiUrl:         'cgi-bin/api.cgi',
     versionUrl:     'cgi-bin/version.cgi',
-    statusInterval: 2000,
+    statusInterval: 200,
     maxLogLines:    500,
 };
 
@@ -569,13 +580,52 @@ const state = {
 };
 
 // ── Map globals ─────────────────────────────────────────
-let map, starlinkMarker, starlinkCircle, aircraftMarker;
+let map, starlinkMarker, starlinkCircle, aircraftMarker, planeMarker;
+let autoPan = true;
+
+// ── Smooth interpolation state ──────────────────────────
+const lerp = {
+    cur:  { lat: 0, lon: 0, heading: 0, unc99: 20, gpsLat: 0, gpsLon: 0 },
+    tgt:  { lat: 0, lon: 0, heading: 0, unc99: 20, gpsLat: 0, gpsLon: 0 },
+    cam:  { lat: 0, lon: 0 }, // separate slow camera position
+    active: false,
+    hasGps: false,
+    circleColor: '#ef4444',
+};
+
+// ── Sending countdown state ─────────────────────────────
+let _sendEpoch = 0;     // server wall-clock time of last send
+let _sendInterval = 1;  // seconds between sends
+let _serverOffset = 0;  // server_time - local_time
 
 // ── Breadcrumb trail ─────────────────────────────────────
 const TRAIL_DURATION_MS = 60000;
 const TRAIL_SEGMENTS    = 4;
 const trailHistory      = []; // { latlng: [lat, lon], ts: number }
 let   trailPolylines    = [];
+
+// ── Aircraft icon (Mission Planner style) ────────────────
+function makeAircraftIcon(heading) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="36" height="36" style="transform:rotate(${heading}deg)">
+        <polygon points="16,2 26,28 16,22 6,28" fill="#e03030" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>`;
+    return L.divIcon({
+        html: svg,
+        className: '',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+    });
+}
+
+function calcBearing(from, to) {
+    const toRad = Math.PI / 180;
+    const dLon = (to[1] - from[1]) * toRad;
+    const lat1 = from[0] * toRad;
+    const lat2 = to[0] * toRad;
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
 
 // ── Map init ─────────────────────────────────────────────
 function initMap() {
@@ -589,6 +639,15 @@ function initMap() {
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
         maxZoom: 19,
     }).addTo(map);
+
+    // User drag/zoom disables auto-pan
+    map.on('dragstart', () => {
+        autoPan = false;
+        document.getElementById('autoPanCheck').checked = false;
+    });
+
+    // Re-calc map size after flex layout settles
+    setTimeout(() => map.invalidateSize(), 200);
 }
 
 // ── Trail update ─────────────────────────────────────────
@@ -608,7 +667,7 @@ function updateTrail(latlng) {
     if (trailHistory.length < 2) return;
 
     // Split history into TRAIL_SEGMENTS chunks; older = more transparent
-    const opacities = [0.1, 0.25, 0.5, 0.8]; // oldest → newest
+    const opacities = [0.25, 0.45, 0.7, 1.0]; // oldest → newest
     const count = trailHistory.length;
     const chunkSize = Math.ceil(count / TRAIL_SEGMENTS);
 
@@ -622,8 +681,8 @@ function updateTrail(latlng) {
         if (points.length < 2) continue;
 
         const poly = L.polyline(points, {
-            color: '#3b82f6',
-            weight: 2,
+            color: '#00ffff',
+            weight: 3,
             opacity: opacities[i] ?? 0.5,
             interactive: false,
         }).addTo(map);
@@ -631,91 +690,212 @@ function updateTrail(latlng) {
     }
 }
 
-// ── Map update ───────────────────────────────────────────
+// ── Map update (sets interpolation targets) ─────────────
 function updateMap(pos) {
     if (!pos) return;
 
     const sl = pos.starlink;
     if (!sl || sl.lat === null || sl.lon === null) return;
 
-    const latlng = [sl.lat, sl.lon];
-    updateTrail(latlng);
-    const sending = !!pos.sending;
+    // Compute heading from previous target to new target
+    const prevLat = lerp.tgt.lat, prevLon = lerp.tgt.lon;
+    const newLat = sl.lat, newLon = sl.lon;
+
+    let heading = lerp.tgt.heading;
+    if (lerp.active) {
+        const dist = Math.abs(newLat - prevLat) + Math.abs(newLon - prevLon);
+        if (dist > 0.000005) { // ~0.5m movement threshold
+            heading = calcBearing([prevLat, prevLon], [newLat, newLon]);
+        }
+    }
+
     const unc99 = (sl.uncertainty_99 !== null && sl.uncertainty_99 !== undefined)
         ? sl.uncertainty_99 : 20;
 
-    // Circle colour: green = sending, amber = below limit but not stable, red = above limit
+    // Circle colour
+    const sending = !!pos.sending;
     const uncLimit = pos.uncertainty_limit || 20;
-    let circleColor;
     if (sending) {
-        circleColor = '#22c55e';
+        lerp.circleColor = '#22c55e';
     } else if (unc99 < uncLimit) {
-        circleColor = '#f59e0b';
+        lerp.circleColor = '#f59e0b';
     } else {
-        circleColor = '#ef4444';
+        lerp.circleColor = '#ef4444';
     }
 
-    // Starlink circle (uncertainty radius)
+    // Set targets
+    lerp.tgt.lat = newLat;
+    lerp.tgt.lon = newLon;
+    lerp.tgt.heading = heading;
+    lerp.tgt.unc99 = unc99;
+
+    // GPS target
+    const gps = pos.gps;
+    if (gps && gps.lat !== null && gps.lon !== null) {
+        lerp.tgt.gpsLat = gps.lat;
+        lerp.tgt.gpsLon = gps.lon;
+        lerp.hasGps = true;
+    }
+
+    // First fix: snap immediately
+    if (!lerp.active) {
+        Object.assign(lerp.cur, lerp.tgt);
+        lerp.cam.lat = newLat;
+        lerp.cam.lon = newLon;
+        lerp.active = true;
+        map.setView([newLat, newLon], 19);
+        state.hasPosition = true;
+    }
+
+    // Trail uses actual reported positions (not interpolated)
+    updateTrail([newLat, newLon]);
+}
+
+// ── Animation loop (smooth interpolation) ────────────────
+function lerpAngle(from, to, t) {
+    let diff = to - from;
+    // Shortest arc
+    while (diff > 180) diff -= 360;
+    while (diff < -180) diff += 360;
+    return from + diff * t;
+}
+
+let _lastAnimTime = 0;
+function animateMap(now) {
+    requestAnimationFrame(animateMap);
+
+    // Also tick the sending countdown (avoids a separate timer)
+    updateSendingUI();
+
+    if (!lerp.active) return;
+
+    const dt = _lastAnimTime ? (now - _lastAnimTime) / 1000 : 0.016;
+    _lastAnimTime = now;
+
+    // Marker smoothing: converge ~95% in ~600ms — absorbs Starlink jitter
+    const tMarker = 1 - Math.exp(-5 * dt);
+    // Camera smoothing: converge ~95% in ~2s — gentle, no shaking
+    const tCam = 1 - Math.exp(-1.5 * dt);
+    // Heading smoothing: very slow to avoid spinning on noisy data
+    const tHead = 1 - Math.exp(-3 * dt);
+
+    const c = lerp.cur, g = lerp.tgt;
+
+    c.lat += (g.lat - c.lat) * tMarker;
+    c.lon += (g.lon - c.lon) * tMarker;
+    c.heading = lerpAngle(c.heading, g.heading, tHead);
+    c.unc99 += (g.unc99 - c.unc99) * tMarker;
+    if (lerp.hasGps) {
+        c.gpsLat += (g.gpsLat - c.gpsLat) * tMarker;
+        c.gpsLon += (g.gpsLon - c.gpsLon) * tMarker;
+    }
+
+    // Camera tracks the smoothed marker position with additional damping
+    lerp.cam.lat += (c.lat - lerp.cam.lat) * tCam;
+    lerp.cam.lon += (c.lon - lerp.cam.lon) * tCam;
+
+    const latlng = [c.lat, c.lon];
+
+    // Starlink uncertainty circle
     if (!starlinkCircle) {
         starlinkCircle = L.circle(latlng, {
-            radius: unc99,
-            color: circleColor,
-            fillColor: circleColor,
-            fillOpacity: 0.15,
-            weight: 2,
+            radius: c.unc99,
+            color: lerp.circleColor, fillColor: lerp.circleColor,
+            fillOpacity: 0.15, weight: 2,
         }).addTo(map);
     } else {
         starlinkCircle.setLatLng(latlng);
-        starlinkCircle.setRadius(unc99);
-        starlinkCircle.setStyle({ color: circleColor, fillColor: circleColor });
+        starlinkCircle.setRadius(c.unc99);
+        starlinkCircle.setStyle({ color: lerp.circleColor, fillColor: lerp.circleColor });
     }
 
     // Starlink position marker (blue dot)
     if (!starlinkMarker) {
         starlinkMarker = L.circleMarker(latlng, {
-            color: '#1d4ed8',
-            fillColor: '#3b82f6',
-            fillOpacity: 0.9,
-            radius: 8,
-            weight: 2,
+            color: '#1d4ed8', fillColor: '#3b82f6', fillOpacity: 0.9, radius: 8, weight: 2,
         }).addTo(map)
           .bindTooltip('Starlink dish position (sent to autopilot)', { sticky: false });
-
-        // Auto-pan to first fix
-        if (!state.hasPosition) {
-            map.setView(latlng, 14);
-            state.hasPosition = true;
-        }
     } else {
         starlinkMarker.setLatLng(latlng);
     }
 
-    // Aircraft GPS marker (orange square/diamond)
-    const gps = pos.gps;
-    if (gps && gps.lat !== null && gps.lon !== null) {
-        const gpsLatLng = [gps.lat, gps.lon];
+    // Aircraft GPS marker
+    if (lerp.hasGps) {
+        const gpsLL = [c.gpsLat, c.gpsLon];
         if (!aircraftMarker) {
-            aircraftMarker = L.circleMarker(gpsLatLng, {
-                color: '#b45309',
-                fillColor: '#f59e0b',
-                fillOpacity: 0.85,
-                radius: 6,
-                weight: 2,
+            aircraftMarker = L.circleMarker(gpsLL, {
+                color: '#b45309', fillColor: '#f59e0b', fillOpacity: 0.85, radius: 6, weight: 2,
             }).addTo(map)
               .bindTooltip('Aircraft GPS (GPS_RAW_INT)', { sticky: false });
         } else {
-            aircraftMarker.setLatLng(gpsLatLng);
+            aircraftMarker.setLatLng(gpsLL);
         }
     }
 
-    // Keep markers rendered above the trail polylines
+    // Airplane icon (rotated via CSS transform — no DOM rebuild)
+    if (!planeMarker) {
+        planeMarker = L.marker(latlng, {
+            icon: makeAircraftIcon(0),
+            zIndexOffset: 1000,
+        }).addTo(map)
+          .bindTooltip('Starlink live position', { sticky: false });
+    } else {
+        planeMarker.setLatLng(latlng);
+    }
+    // Rotate via CSS transform on the icon's inner SVG
+    const iconEl = planeMarker.getElement();
+    if (iconEl) {
+        const svg = iconEl.querySelector('svg');
+        if (svg) svg.style.transform = `rotate(${c.heading}deg)`;
+    }
+
+    // Auto-pan using heavily-damped camera position
+    if (autoPan && state.hasPosition) {
+        map.panTo([lerp.cam.lat, lerp.cam.lon], { animate: false });
+    }
+
+    // Z-order
     if (starlinkCircle) starlinkCircle.bringToFront();
     if (starlinkMarker) starlinkMarker.bringToFront();
     if (aircraftMarker) aircraftMarker.bringToFront();
 }
 
+// ── Sending countdown (runs at 20 Hz for smooth updates) ─
+function updateSendingUI() {
+    const badge = document.getElementById('sendingBadge');
+    const statusEl = document.getElementById('sendingStatus');
+    if (!_sendEpoch) {
+        badge.style.display = 'none';
+        statusEl.textContent = '--';
+        statusEl.className = 'stat-value val-muted';
+        return;
+    }
+
+    const now = Date.now() / 1000;
+    const elapsed = now - _sendEpoch;
+    const remaining = Math.max(0, _sendInterval - (elapsed % _sendInterval));
+    const justSent = remaining > (_sendInterval - 0.15); // within 150ms of send
+
+    if (justSent) {
+        badge.textContent = 'SENT';
+        badge.className = 'badge badge-sending';
+        badge.style.display = '';
+        statusEl.textContent = 'Sent';
+        statusEl.className = 'stat-value val-send';
+    } else {
+        badge.textContent = remaining.toFixed(1) + 's';
+        badge.className = 'badge badge-next';
+        badge.style.display = '';
+        statusEl.textContent = remaining.toFixed(1) + 's';
+        statusEl.className = 'stat-value val-ok';
+    }
+}
+
 // ── Status fetch ─────────────────────────────────────────
+let _fetchInFlight = false;
 async function fetchStatus() {
+    if (_fetchInFlight) return; // skip if previous request still pending
+    _fetchInFlight = true;
     try {
         const resp = await fetch(CFG.statusUrl);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -726,6 +906,8 @@ async function fetchStatus() {
     } catch (e) {
         console.warn('Status fetch error:', e);
         setProcessStatus(null, null);
+    } finally {
+        _fetchInFlight = false;
     }
 }
 
@@ -800,17 +982,12 @@ function updateStatusUI(data) {
     setText('starUnc99', fmtM(unc99, 2),
         unc99 === null ? 'val-muted' : (unc99 < uncLimit ? 'val-ok' : 'val-warn'));
 
-    // Sending status
-    const sending = !!p.sending;
-    const badge = document.getElementById('sendingBadge');
-    if (sending) {
-        badge.textContent = 'SENDING';
-        badge.className = 'badge badge-sending';
-        badge.style.display = '';
-    } else {
-        badge.style.display = 'none';
+    // Sending status — driven by last_send_epoch + send_interval from server
+    if (p.last_send_epoch && p.send_interval) {
+        _sendEpoch = p.last_send_epoch;
+        _sendInterval = p.send_interval;
     }
-    setText('sendingStatus', sending ? 'Yes' : 'No', sending ? 'val-send' : 'val-muted');
+    updateSendingUI();
 
     // Correction flag
     const corr = p.correction || 'N';
@@ -1062,6 +1239,7 @@ async function fetchVersion() {
 // ── Bootstrap ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
+    requestAnimationFrame(animateMap);
     fetchStatus();
     setInterval(fetchStatus, CFG.statusInterval);
     connectLogStream();

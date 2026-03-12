@@ -52,10 +52,15 @@ done
 send_event "history_end" "{\"message\":\"Log history complete\"}"
 
 # ── Live stream ──────────────────────────────────────────
-# Pure foreground pipeline — no background processes, no FIFO.
-# Every printf goes directly to the CGI stdout pipe without buffering.
-# starnav logs at ~5 Hz so no heartbeat is needed while it runs;
-# the retry directive above handles reconnect when it's stopped.
-logread -f 2>/dev/null | grep --line-buffered -i starnav | while IFS= read -r line; do
-    [ -n "$line" ] && send_log "$line" "starnav"
+# read -t 15 sends an inline keepalive when no log lines arrive,
+# preventing uhttpd network_timeout from killing the connection.
+# Everything runs in one process — no background jobs.
+logread -f 2>/dev/null | while true; do
+    if IFS= read -r -t 15 line; then
+        case "$line" in
+            *[Ss][Tt][Aa][Rr][Nn][Aa][Vv]*) send_log "$line" "starnav" ;;
+        esac
+    else
+        printf ': keepalive\n\n'
+    fi
 done

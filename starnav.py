@@ -328,6 +328,7 @@ else:
 star_unc_prev = None
 _last_log_cleanup = 0
 _last_send_time = 0.0
+_last_send_epoch = 0.0
 SEND_INTERVAL = 1.0  # Send external position estimate every 1 second
 
 def wait_for_ack(mav, command_id, timeout=1.0):
@@ -464,6 +465,7 @@ try:
             if not (math.isnan(star_lat) or math.isnan(star_lon)):
                 sending = True
                 _last_send_time = now_monotonic
+                _last_send_epoch = time.time()
                 print(">>> Sending External Position Estimate <<<")
 
                 mav.mav.command_int_send(
@@ -526,6 +528,8 @@ try:
             "yaw":            yaw,
             "accuracy":       accuracy,
             "sending":        sending,
+            "last_send_epoch": _last_send_epoch,
+            "send_interval":  SEND_INTERVAL,
             "correction":     correction,
             "last_ack_result": last_ack_result,
             "fake_gps_active": fake_gps_until is not None,
