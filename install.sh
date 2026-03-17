@@ -9,7 +9,7 @@ set -e
 INSTALL_DIR="/opt/starnav"
 CONFIG_FILE="/etc/starnav.conf"
 INIT_SCRIPT="/etc/init.d/starnav"
-REPO_URL="https://github.com/jack7169/Starlink_Mavlink_PNT.git"
+REPO_URL="https://github.com/jack7169/Starnav.git"
 
 echo "=== StarNav OpenWRT Installer ==="
 echo ""

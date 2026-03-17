@@ -43,10 +43,10 @@ Position data:              Quality gating:              EKF3 Kalman fusion:
 
 ```bash
 # 1. Clone to your development machine
-git clone --recurse-submodules https://github.com/jack7169/Starlink_Mavlink_PNT.git
+git clone --recurse-submodules https://github.com/jack7169/Starnav.git
 
 # 2. Copy to router
-scp -r Starlink_Mavlink_PNT root@<router-ip>:/tmp/starnav-install
+scp -r Starnav root@<router-ip>:/tmp/starnav-install
 
 # 3. Install on router
 ssh root@<router-ip>
