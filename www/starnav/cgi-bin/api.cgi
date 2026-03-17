@@ -105,22 +105,7 @@ case "$action" in
     status)
         run_starnav_command "status"
         ;;
-    fake_gps)
-        # Block fake GPS if aircraft is in air, unless force override
-        force=$(printf '%s' "$POST_DATA" | sed -n 's/.*"force"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p')
-        if [ "$force" != "true" ]; then
-            STATUS_FILE="/tmp/starnav_status.json"
-            if [ -f "$STATUS_FILE" ]; then
-                in_air=$(sed -n 's/.*"in_air"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' "$STATUS_FILE")
-                if [ "$in_air" = "true" ]; then
-                    json_error "BLOCKED: Fake GPS is disabled while aircraft is in air. Enabling fake GPS in flight could cause EKF poisoning and a crash."
-                fi
-            fi
-        fi
-        touch /tmp/starnav_fakegps_trigger 2>/dev/null
-        json_response "{\"success\": true, \"action\": \"fake_gps\"}"
-        ;;
     *)
-        json_error "Unknown action: $action (valid: start, stop, restart, status, fake_gps)"
+        json_error "Unknown action: $action (valid: start, stop, restart, status)"
         ;;
 esac

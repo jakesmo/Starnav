@@ -277,43 +277,6 @@
         .log-ack   { color: var(--success); }
         .log-sys   { color: var(--accent); }
 
-        /* ── Warning modal ───────────────────────────── */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,.65);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-        .modal-overlay.visible { display: flex; }
-
-        .modal-box {
-            background: var(--bg-card);
-            border: 2px solid var(--error);
-            border-radius: 12px;
-            padding: 1.5rem 2rem;
-            max-width: 420px;
-            width: 90%;
-            text-align: center;
-        }
-
-        .modal-box h2 {
-            color: var(--error);
-            font-size: 1.1rem;
-            margin-bottom: 0.75rem;
-        }
-
-        .modal-box p {
-            font-size: 0.88rem;
-            color: var(--text-secondary);
-            line-height: 1.6;
-            margin-bottom: 1.25rem;
-        }
-
-        .modal-box .btn { min-width: 100px; }
-
         /* ── Scrollbar ───────────────────────────────── */
         ::-webkit-scrollbar       { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -330,10 +293,161 @@
             font-variant-numeric: tabular-nums;
         }
 
-        .version-footer .update-badge {
+        .version-footer .update-btn {
             margin-left: 0.6rem;
             color: var(--warning);
             font-weight: 600;
+            background: none;
+            border: 1px solid var(--warning);
+            border-radius: 4px;
+            padding: 0.15rem 0.5rem;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .version-footer .update-btn:hover {
+            background: var(--warning);
+            color: #1a1a2e;
+        }
+
+        .version-footer .update-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* ── Update log panel ────────────────────────── */
+        #updateLog {
+            display: none;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 1rem 0.5rem;
+        }
+
+        #updateLog .update-log-inner {
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.75rem;
+            line-height: 1.5;
+            color: #c9d1d9;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        #updateLog .update-log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        #updateLog .update-log-header span {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-secondary);
+        }
+
+        #updateLog .update-log-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0 0.25rem;
+        }
+
+        #updateLog .update-log-close:hover {
+            color: var(--text-primary);
+        }
+
+        /* ── Help panel ──────────────────────────────── */
+        #helpPanel {
+            display: none;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 1rem 1rem;
+        }
+
+        #helpPanel.visible { display: block; }
+
+        #helpPanel .help-inner {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.5rem;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        #helpPanel h2 {
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            color: var(--accent);
+        }
+
+        #helpPanel h3 {
+            font-size: 0.88rem;
+            margin-top: 1.25rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.25rem;
+        }
+
+        #helpPanel p, #helpPanel li {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        #helpPanel ul, #helpPanel ol {
+            padding-left: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+
+        #helpPanel li { margin-bottom: 0.25rem; }
+
+        #helpPanel code {
+            background: rgba(59,130,246,.12);
+            color: #60a5fa;
+            padding: 0.1rem 0.35rem;
+            border-radius: 3px;
+            font-size: 0.78rem;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+        }
+
+        #helpPanel table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 0.5rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.78rem;
+        }
+
+        #helpPanel th {
+            text-align: left;
+            padding: 0.4rem 0.6rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            font-weight: 600;
+        }
+
+        #helpPanel td {
+            padding: 0.35rem 0.6rem;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        #helpPanel td code {
+            font-size: 0.75rem;
         }
     </style>
 </head>
@@ -353,10 +467,66 @@
             <button id="btn-start"    class="btn btn-primary"   onclick="executeCommand('start')">Start</button>
             <button id="btn-stop"     class="btn btn-danger"    onclick="executeCommand('stop')">Stop</button>
             <button id="btn-restart"  class="btn btn-secondary" onclick="executeCommand('restart')">Restart</button>
-            <button id="btn-fakegps"  class="btn btn-warn"      onclick="enableFakeGPS()">Fake GPS (5s)</button>
+            <button id="btn-help"     class="btn btn-secondary" onclick="toggleHelp()">Help</button>
         </div>
     </div>
 </header>
+
+<!-- ── Help Panel (toggled via Help button) ───────────── -->
+<div id="helpPanel">
+    <div class="help-inner">
+        <h2>StarNav Documentation</h2>
+
+        <h3>Overview</h3>
+        <p>
+            StarNav reads position data from a Starlink dish via gRPC and forwards it to an
+            ArduPilot flight controller as MAVLink external position (EXTPOS) messages. This
+            enables GPS-denied navigation using Starlink's built-in positioning capability as
+            an alternative or supplementary position source for the EKF.
+        </p>
+
+        <h3>ArduPilot Parameter Setup</h3>
+        <p>Set the following parameters on your flight controller for StarNav external position fusion:</p>
+        <table>
+            <tr><th>Parameter</th><th>Value</th><th>Description</th></tr>
+            <tr><td><code>EK3_SRC2_POSXY</code></td><td><code>8</code></td><td>External Position for source set 2 horizontal position</td></tr>
+            <tr><td><code>EK3_SRC2_POSZ</code></td><td><code>8</code></td><td>External Position for source set 2 vertical position</td></tr>
+            <tr><td><code>EK3_SRC2_VELXY</code></td><td><code>0</code></td><td>None (StarNav does not send velocity)</td></tr>
+            <tr><td><code>EK3_SRC2_VELZ</code></td><td><code>0</code></td><td>None (StarNav does not send velocity)</td></tr>
+            <tr><td><code>EK3_SRC2_YAW</code></td><td><code>0</code></td><td>None (no yaw from StarNav)</td></tr>
+            <tr><td><code>EK3_EXTPOS_GATE</code></td><td><code>500</code></td><td>Innovation gate for external position (generous for Starlink noise)</td></tr>
+            <tr><td><code>RC_OPTION</code> (spare)</td><td><code>90</code></td><td>EKF source set switching on an RC channel (optional)</td></tr>
+        </table>
+        <p>Source set 1 should remain configured for GPS as your primary source. Use RC channel switching
+           or autonomous logic to switch to source set 2 (StarNav) when needed.</p>
+
+        <h3>Configuration Reference (starnav.conf)</h3>
+        <table>
+            <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+            <tr><td><code>DISH_ADDRESS</code></td><td><code>192.168.100.1:9200</code></td><td>Starlink dish gRPC address</td></tr>
+            <tr><td><code>MAVLINK_CONNECTION</code></td><td><code>udp:127.0.0.1:14550</code></td><td>MAVLink connection string (UDP/TCP/serial)</td></tr>
+            <tr><td><code>SEND_INTERVAL</code></td><td><code>1.0</code></td><td>Seconds between position sends to autopilot</td></tr>
+            <tr><td><code>UNCERTAINTY_LIMIT</code></td><td><code>20</code></td><td>Max 99% uncertainty (m) to allow sending</td></tr>
+            <tr><td><code>ALTITUDE_SOURCE</code></td><td><code>starlink</code></td><td>Altitude source: <code>starlink</code>, <code>baro</code>, or <code>fixed</code></td></tr>
+            <tr><td><code>FIXED_ALTITUDE</code></td><td><code>0</code></td><td>Fixed altitude value (m) when ALTITUDE_SOURCE=fixed</td></tr>
+            <tr><td><code>CORRECTION_ENABLED</code></td><td><code>false</code></td><td>Enable position correction/smoothing filter</td></tr>
+            <tr><td><code>LOG_LEVEL</code></td><td><code>info</code></td><td>Logging level: debug, info, warn, error</td></tr>
+            <tr><td><code>SYSID</code></td><td><code>1</code></td><td>MAVLink system ID of the autopilot</td></tr>
+            <tr><td><code>COMPID</code></td><td><code>197</code></td><td>MAVLink component ID for StarNav companion</td></tr>
+        </table>
+
+        <h3>Troubleshooting</h3>
+        <ul>
+            <li><strong>Status shows "Stopped":</strong> Click Start, or check that <code>starnav</code> service is installed. Run <code>systemctl status starnav</code> on the companion.</li>
+            <li><strong>No Starlink position data:</strong> Verify the dish is powered and reachable at the configured DISH_ADDRESS. Try <code>ping 192.168.100.1</code>.</li>
+            <li><strong>Uncertainty too high / not sending:</strong> Starlink position accuracy varies. Ensure clear sky view. Increase <code>UNCERTAINTY_LIMIT</code> if needed.</li>
+            <li><strong>EKF not accepting positions:</strong> Check that EK3_SRC2_POSXY=8 and you have switched to source set 2. Verify <code>EK3_EXTPOS_GATE</code> is set high enough (500 recommended).</li>
+            <li><strong>MAVLink connection failed:</strong> Confirm the MAVLink endpoint is correct and the autopilot is reachable. Check firewall rules and serial port permissions.</li>
+            <li><strong>Log stream disconnects frequently:</strong> This can happen if the companion CPU is overloaded or the network is intermittent. The UI will auto-reconnect.</li>
+            <li><strong>Update fails:</strong> SSH into the companion and run <code>cd /opt/starnav && bash install.sh</code> manually to see detailed errors.</li>
+        </ul>
+    </div>
+</div>
 
 <!-- ── Main Container ──────────────────────────────────── -->
 <div class="container">
@@ -569,22 +739,16 @@
 <!-- ── Version footer ────────────────────────────────── -->
 <div class="version-footer">
     <span id="versionCommit">commit --</span>
-    <span id="updateBadge" class="update-badge" style="display:none" title="">⚠ Update available — run install.sh</span>
+    <button id="updateBtn" class="update-btn" style="display:none" onclick="runUpdate()">Update Now</button>
 </div>
 
-<!-- ── In-air fake GPS warning modal ───────────────────── -->
-<div id="fakeGpsModal" class="modal-overlay" onclick="if(event.target===this)closeFakeGpsModal()">
-    <div class="modal-box">
-        <h2>WARNING — Aircraft In Air</h2>
-        <p>
-            Enabling fake GPS while airborne could cause an <strong>EKF poisoning event</strong>
-            and uncontrolled crash. This should only be used on the ground for EKF initialisation.
-        </p>
-        <div style="display:flex;gap:0.75rem;justify-content:center">
-            <button class="btn btn-secondary" onclick="closeFakeGpsModal()">Cancel</button>
-            <button class="btn btn-danger" onclick="forceFakeGPS()">Send Anyway</button>
-        </div>
+<!-- ── Update log panel ──────────────────────────────── -->
+<div id="updateLog">
+    <div class="update-log-header">
+        <span>Update Progress</span>
+        <button class="update-log-close" onclick="closeUpdateLog()">&times;</button>
     </div>
+    <div id="updateLogOutput" class="update-log-inner"></div>
 </div>
 
 <!-- ── Leaflet ────────────────────────────────────────── -->
@@ -599,6 +763,7 @@ const CFG = {
     logsUrl:        'cgi-bin/logs.cgi',
     apiUrl:         'cgi-bin/api.cgi',
     versionUrl:     'cgi-bin/version.cgi',
+    updateUrl:      'cgi-bin/update.cgi',
     statusInterval: 200,
     maxLogLines:    500,
 };
@@ -1025,17 +1190,6 @@ function updateStatusUI(data) {
     const corr = p.correction || 'N';
     setText('correction', corr, corr === 'Y' ? 'val-send' : 'val-muted');
 
-    // Fake GPS active indicator
-    const fakeBtn = document.getElementById('btn-fakegps');
-    if (fakeBtn && p.fake_gps_active && !_fakeGpsTimer) {
-        // Burst active server-side but no client countdown running (e.g. page refresh)
-        fakeBtn.disabled = true;
-        fakeBtn.textContent = 'Fake GPS (active)';
-    } else if (fakeBtn && !p.fake_gps_active && !_fakeGpsTimer) {
-        fakeBtn.disabled = false;
-        fakeBtn.textContent = 'Fake GPS (5s)';
-    }
-
     // EKF acceptance (last ACK result)
     const ack = p.last_ack_result;
     if (ack === null || ack === undefined) {
@@ -1106,9 +1260,6 @@ function updateStatusUI(data) {
     const ackClass = (p.ack_accept_rate != null && p.ack_accept_rate < 50) ? 'val-error' :
                      (p.ack_accept_rate != null && p.ack_accept_rate < 90) ? 'val-warn' : 'val-ok';
     setText('ackRate', ackPct, ackClass);
-
-    // Track in-air state for fake GPS lockout
-    _aircraftInAir = !!p.in_air;
 }
 
 // ── Log streaming (SSE) ──────────────────────────────────
@@ -1187,72 +1338,6 @@ function clearLogs() {
     document.getElementById('logOutput').innerHTML = '';
 }
 
-// ── Fake GPS burst ───────────────────────────────────────
-let _fakeGpsTimer = null;
-let _aircraftInAir = false;
-
-function closeFakeGpsModal() {
-    document.getElementById('fakeGpsModal').classList.remove('visible');
-}
-
-function enableFakeGPS() {
-    const btn = document.getElementById('btn-fakegps');
-    if (!btn || btn.disabled) return;
-
-    if (_aircraftInAir) {
-        document.getElementById('fakeGpsModal').classList.add('visible');
-        return;
-    }
-    triggerFakeGPS();
-}
-
-function forceFakeGPS() {
-    closeFakeGpsModal();
-    appendLog({ level: 'warn', source: 'webui', message: 'OVERRIDE: Fake GPS triggered while aircraft in air!' });
-    triggerFakeGPS();
-}
-
-async function triggerFakeGPS() {
-    const btn = document.getElementById('btn-fakegps');
-    if (!btn) return;
-
-    try {
-        const resp = await fetch(CFG.apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'fake_gps', force: true }),
-        });
-        const data = await resp.json();
-        if (!data.success) {
-            appendLog({ level: 'error', source: 'webui', message: 'Fake GPS trigger failed: ' + (data.error || '') });
-            return;
-        }
-    } catch (e) {
-        appendLog({ level: 'error', source: 'webui', message: 'Fake GPS trigger failed: ' + e.message });
-        return;
-    }
-
-    appendLog({ level: 'send', source: 'webui', message: 'Fake GPS burst triggered — 5 s @ 5 Hz on GPS2' });
-
-    // Countdown on the button
-    btn.disabled = true;
-    let remaining = 5;
-    btn.textContent = `Fake GPS (${remaining}s)`;
-    clearInterval(_fakeGpsTimer);
-    _fakeGpsTimer = setInterval(() => {
-        remaining--;
-        if (remaining > 0) {
-            btn.textContent = `Fake GPS (${remaining}s)`;
-        } else {
-            clearInterval(_fakeGpsTimer);
-            _fakeGpsTimer = null;
-            btn.disabled = false;
-            btn.textContent = 'Fake GPS (5s)';
-            appendLog({ level: 'info', source: 'webui', message: 'Fake GPS burst complete' });
-        }
-    }, 1000);
-}
-
 // ── Command execution ────────────────────────────────────
 async function executeCommand(action) {
     const btnId = `btn-${action}`;
@@ -1298,14 +1383,100 @@ async function fetchVersion() {
         if (!resp.ok) return;
         const d = await resp.json();
         document.getElementById('versionCommit').textContent = `commit ${d.commit}`;
-        const badge = document.getElementById('updateBadge');
+        const btn = document.getElementById('updateBtn');
         if (d.update_available) {
-            badge.title = d.remote_commit ? `Latest: ${d.remote_commit}` : '';
-            badge.style.display = '';
+            btn.title = d.remote_commit ? `Latest: ${d.remote_commit}` : '';
+            btn.style.display = '';
         } else {
-            badge.style.display = 'none';
+            btn.style.display = 'none';
         }
     } catch (_) {}
+}
+
+// ── Update Now (SSE-based) ───────────────────────────────
+let _updateEventSource = null;
+
+function runUpdate() {
+    const btn = document.getElementById('updateBtn');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+
+    const logPanel = document.getElementById('updateLog');
+    const logOutput = document.getElementById('updateLogOutput');
+    logOutput.textContent = '';
+    logPanel.style.display = 'block';
+
+    appendUpdateLine('Starting update...\n');
+
+    if (_updateEventSource) {
+        _updateEventSource.close();
+        _updateEventSource = null;
+    }
+
+    var es = new EventSource(CFG.updateUrl);
+    _updateEventSource = es;
+
+    es.onmessage = function(evt) {
+        appendUpdateLine(evt.data + '\n');
+    };
+
+    es.addEventListener('done', function(evt) {
+        appendUpdateLine('\n--- Update complete ---\n');
+        es.close();
+        _updateEventSource = null;
+        btn.disabled = false;
+        btn.textContent = 'Update Now';
+        // Refresh version info
+        fetchVersion();
+    });
+
+    es.addEventListener('error_msg', function(evt) {
+        appendUpdateLine('ERROR: ' + evt.data + '\n');
+    });
+
+    es.onerror = function() {
+        // EventSource will fire onerror on close too, so only handle if not already done
+        if (_updateEventSource === es) {
+            appendUpdateLine('\n--- Connection lost. Update may still be running on the server. ---\n');
+            es.close();
+            _updateEventSource = null;
+            btn.disabled = false;
+            btn.textContent = 'Update Now';
+            // Try refreshing version after a delay in case it finished
+            setTimeout(fetchVersion, 5000);
+        }
+    };
+}
+
+function appendUpdateLine(text) {
+    var logOutput = document.getElementById('updateLogOutput');
+    logOutput.textContent += text;
+    logOutput.scrollTop = logOutput.scrollHeight;
+}
+
+function closeUpdateLog() {
+    var logPanel = document.getElementById('updateLog');
+    logPanel.style.display = 'none';
+    if (_updateEventSource) {
+        _updateEventSource.close();
+        _updateEventSource = null;
+    }
+    var btn = document.getElementById('updateBtn');
+    btn.disabled = false;
+    btn.textContent = 'Update Now';
+}
+
+// ── Help panel toggle ────────────────────────────────────
+function toggleHelp() {
+    var panel = document.getElementById('helpPanel');
+    panel.classList.toggle('visible');
+    var btn = document.getElementById('btn-help');
+    if (panel.classList.contains('visible')) {
+        btn.className = 'btn btn-primary';
+    } else {
+        btn.className = 'btn btn-secondary';
+    }
 }
 
 // ── Bootstrap ────────────────────────────────────────────

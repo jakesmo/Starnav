@@ -150,43 +150,7 @@ def distance_3d(lat1, lon1, alt1, lat2, lon2, alt2):
 # -------------------------
 # Web UI status file
 # -------------------------
-STATUS_FILE          = "/tmp/starnav_status.json"
-FAKEGPS_TRIGGER_FILE = "/tmp/starnav_fakegps_trigger"
-
-# GPS epoch constants (for GPS_INPUT time fields)
-_GPS_EPOCH_UNIX = 315964800   # 1980-01-06 00:00:00 UTC as Unix timestamp
-_GPS_SECS_PER_WEEK = 604800
-
-def send_fake_gps(lat, lon):
-    """Send a single GPS_INPUT message with a fake 2D fix to GPS2 (gps_id=1).
-
-    Altitude is deliberately omitted (ignore flag set, fix_type=2D) to prevent
-    Starlink's inaccurate altitude from poisoning the EKF.
-    """
-    gps_secs   = time.time() - _GPS_EPOCH_UNIX
-    week       = int(gps_secs / _GPS_SECS_PER_WEEK)
-    ms_in_week = int((gps_secs % _GPS_SECS_PER_WEEK) * 1000)
-    # ignore_flags: ignore alt (1) | velocity (8|16) | speed_accuracy (32)
-    #               | horiz_accuracy (64) | vert_accuracy (128) = 249
-    mav.mav.gps_input_send(
-        int(time.time() * 1e6),  # time_usec
-        1,                        # gps_id  (GPS2 = index 1)
-        249,                      # ignore_flags (alt + vel + speed/horiz/vert acc)
-        ms_in_week,               # time_week_ms
-        week,                     # time_week
-        2,                        # fix_type  (2 = 2D fix, no altitude)
-        int(lat * 1e7),           # lat  degE7
-        int(lon * 1e7),           # lon  degE7
-        0.0,                      # alt  (ignored, flag set)
-        1.1,                      # hdop
-        0.0,                      # vdop  (no vertical info)
-        0.0, 0.0, 0.0,            # vn, ve, vd  (ignored)
-        0.0,                      # speed_accuracy (ignored)
-        0.0,                      # horiz_accuracy  m
-        0.0,                      # vert_accuracy   m
-        20,                       # satellites_visible
-        0,                        # yaw  (0 = not set)
-    )
+STATUS_FILE = "/tmp/starnav_status.json"
 
 
 def write_status_file(data):
@@ -231,7 +195,6 @@ def write_status_file(data):
         "send_interval":    data["send_interval"],
         "correction":       data["correction"],
         "last_ack_result":  data["last_ack_result"],
-        "fake_gps_active":  data["fake_gps_active"],
         "is_armed":         data["is_armed"],
         "in_air":           data["in_air"],
         "quality_ok":       data.get("quality_ok", False),
@@ -389,7 +352,6 @@ try:
     accuracy = float("nan")
     correction = "N"
     timestamp = datetime.now(UTC)
-    fake_gps_until = None
 
     while True:
         try:
@@ -587,25 +549,7 @@ try:
                     reasons.append(f"stale({position_age:.1f}s)")
                 print(f"-- Not sending: {', '.join(reasons)}")
 
-        # ---- Fake GPS trigger ----
         in_air = is_armed and relative_alt_m > 2.0
-        if os.path.exists(FAKEGPS_TRIGGER_FILE):
-            try:
-                os.remove(FAKEGPS_TRIGGER_FILE)
-            except OSError:
-                pass
-            if in_air:
-                print("!!! WARNING: Fake GPS triggered while aircraft is in air (override) !!!")
-            fake_gps_until = now_monotonic + 5.0
-            print(">>> Fake GPS burst started (5 s @ 5 Hz on GPS2) <<<")
-
-        if fake_gps_until is not None:
-            if now_monotonic < fake_gps_until:
-                if not (math.isnan(star_lat) or math.isnan(star_lon)):
-                    send_fake_gps(star_lat, star_lon)
-            else:
-                fake_gps_until = None
-                print(">>> Fake GPS burst ended <<<")
 
         # Write status file for web UI (every iteration, ~5 Hz)
         write_status_file({
@@ -626,7 +570,6 @@ try:
             "last_send_epoch": _last_send_epoch,
             "correction":      correction,
             "last_ack_result": last_ack_result,
-            "fake_gps_active": fake_gps_until is not None,
             "is_armed":        is_armed,
             "in_air":          in_air,
             "quality_ok":      quality_ok,

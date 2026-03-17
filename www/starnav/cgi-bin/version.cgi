@@ -4,6 +4,10 @@
 # Returns current commit hash and whether the remote has newer commits.
 # Remote check is cached for 60 s to avoid hammering GitHub on every page load.
 #
+# Usage:
+#   GET  /cgi-bin/version.cgi          -- return version JSON
+#   GET  /cgi-bin/version.cgi?invalidate  -- clear cache and return version JSON
+#
 
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -14,6 +18,13 @@ echo ""
 INSTALL_DIR="/opt/starnav"
 GIT_CACHE="/tmp/starnav_git_remote"
 CACHE_TTL=60
+
+# Invalidate cache if requested (called after git pull)
+case "$QUERY_STRING" in
+    *invalidate*)
+        rm -f "$GIT_CACHE"
+        ;;
+esac
 
 # Current local commit
 CURRENT_COMMIT=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || echo "")
@@ -41,8 +52,9 @@ fi
 
 if [ "$CACHE_VALID" = "0" ]; then
     # ls-remote is read-only and doesn't modify the local repo
-    REMOTE_COMMIT=$(timeout 8 git -C "$INSTALL_DIR" ls-remote origin refs/heads/main 2>/dev/null \
-                    | cut -f1 | tr -d '[:space:]')
+    RAW_REMOTE=$(timeout 8 git -C "$INSTALL_DIR" ls-remote origin refs/heads/main 2>/dev/null)
+    # Extract just the commit hash — first field, strip ALL whitespace
+    REMOTE_COMMIT=$(printf '%s' "$RAW_REMOTE" | awk '{print $1; exit}')
     if [ -n "$REMOTE_COMMIT" ]; then
         printf '%s\n%s\n' "$NOW" "$REMOTE_COMMIT" > "$GIT_CACHE"
     fi
@@ -52,9 +64,11 @@ REMOTE_SHORT=""
 UPDATE_AVAILABLE="false"
 
 if [ -n "$REMOTE_COMMIT" ]; then
-    REMOTE_SHORT=$(printf '%s' "$REMOTE_COMMIT" | cut -c1-7)
-    [ "$REMOTE_COMMIT" != "$CURRENT_COMMIT" ] && UPDATE_AVAILABLE="true"
+    REMOTE_SHORT=$(printf '%.7s' "$REMOTE_COMMIT")
+    if [ "$REMOTE_COMMIT" != "$CURRENT_COMMIT" ]; then
+        UPDATE_AVAILABLE="true"
+    fi
 fi
 
-printf '{"commit":"%s","remote_commit":"%s","update_available":%s}\n' \
-    "$CURRENT_SHORT" "${REMOTE_SHORT:-unknown}" "$UPDATE_AVAILABLE"
+printf '{"commit":"%s","remote_commit":"%s","update_available":%s,"last_checked":%s}\n' \
+    "$CURRENT_SHORT" "${REMOTE_SHORT:-unknown}" "$UPDATE_AVAILABLE" "$NOW"

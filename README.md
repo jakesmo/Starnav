@@ -1,281 +1,238 @@
-# StarNav — Starlink to MAVLink Position Forwarding
+# StarNav
 
-StarNav bridges a Starlink dish and a MAVLink autopilot (e.g. CubePilot, ArduPilot). It continuously reads the dish's GPS position over gRPC and forwards it to an autopilot as a MAVLink external position estimate (`COMMAND_INT 43003`), enabling the autopilot's EKF to fuse Starlink-derived position with its own sensors.
+GPS-denied navigation companion for ArduPilot using Starlink dish positioning.
 
-It runs as a persistent service on an OpenWRT router sitting between the Starlink dish and the autopilot.
+StarNav reads position data from a Starlink dish via gRPC and forwards it to an ArduPilot flight controller as MAVLink `EXTERNAL_POSITION_ESTIMATE` commands. This enables the EKF to use Starlink as an alternative or supplementary position source when GPS is unavailable or degraded.
 
----
-
-## How It Works
+## Architecture
 
 ```
-Starlink Dish ──gRPC──► OpenWRT Router ──MAVLink UDP──► Autopilot (CubePilot)
-  192.168.100.1:9200       (starnav.py)                   GLOBAL_POSITION_INT
-                                │                          GPS_RAW_INT
-                                │                          ATTITUDE
-                           /tmp/starnav_status.json
-                                │
-                           Web UI (port 8081)
+Starlink Dish                OpenWRT Router              Flight Controller
+  (gRPC)         ──────>       (StarNav)       ──────>      (ArduPilot)
+192.168.100.1:9200          starnav.py daemon           MAVLink UDP/Serial
+
+Position data:              Quality gating:              EKF3 Kalman fusion:
+ - Latitude                  - Uncertainty limit          - Source set 2 (EXTPOS)
+ - Longitude                 - Stability timer            - Innovation gate
+ - 1σ uncertainty            - Staleness detection        - Accuracy estimator
+                             - Adaptive send rate         - Automatic fallback
 ```
 
-1. **Starlink position** — `starlink_grpc.get_location()` is called every 200 ms, returning latitude, longitude, altitude, and a 1σ horizontal uncertainty value (metres).
-2. **Quality gating** — A position is only forwarded to the autopilot when *both* conditions are met:
-   - The 99% uncertainty (`1σ × 3`) has been continuously below `uncertainty_limit` for at least `min_stable_time` seconds, **or**
-   - A significant accuracy improvement (`correction` flag) is detected — the 99% uncertainty dropped by more than `accuracy_jump_threshold` in a single cycle.
-3. **MAVLink send** — When gated, `COMMAND_INT` with command ID 43003 is sent, carrying the Starlink position and 1σ accuracy. The autopilot responds with `COMMAND_ACK`; the result is tracked and shown in the web UI.
-4. **GPS global origin** — On startup, StarNav reads the Starlink position and sends `SET_GPS_GLOBAL_ORIGIN` to the autopilot so its local-frame EKF is anchored correctly.
-5. **MAVLink receive** — `GPS_RAW_INT`, `GLOBAL_POSITION_INT`, and `ATTITUDE` messages are drained from the autopilot each cycle to keep the web UI and CSV logs populated with live aircraft data.
+## Features
 
-### Fake GPS burst
-
-A "Fake GPS" mode sends a `GPS_INPUT` message (3D fix, GPS2 port) using the current Starlink position. This is useful for forcing an initial EKF fix without needing a real GPS receiver locked on. The burst lasts 5 seconds at 5 Hz and is triggered from the web UI or by creating the file `/tmp/starnav_fakegps_trigger`.
-
-### Timestamp handling
-
-MAVLink spec requires the transmission timestamp to wrap at ≤250 seconds (~10 µs resolution with a 32-bit float). StarNav uses wall-clock time when NTP is available and falls back to monotonic time if the system clock is not yet synced (the board has no RTC).
-
----
+- **Quality gating** — positions are only sent when Starlink uncertainty stays below a configurable threshold for a minimum stability period
+- **Adaptive send rate** — 2 Hz when StarNav is the active EKF source, 1 Hz for passive buffer fill, 0.5 Hz when degraded
+- **EKF feedback monitoring** — tracks `EKF_STATUS_REPORT` for const_pos_mode, watches for accuracy rejections and source switches via `STATUSTEXT`
+- **Position staleness detection** — stops sending if Starlink gRPC returns unchanged position data for more than 3 seconds
+- **Conditional origin setting** — only sends `SET_GPS_GLOBAL_ORIGIN` if no GPS fix is available at startup
+- **Async ACK tracking** — non-blocking command acknowledgment with rolling acceptance rate
+- **Continuous heartbeat** — 1 Hz heartbeat to autopilot for companion health tracking
+- **Web monitoring dashboard** — real-time position map, EKF health indicators, live log streaming, one-click updates
+- **CSV flight logging** — timestamped position data with automatic rotation and size limits
 
 ## Hardware Requirements
 
-- **OpenWRT router** with Python 3.11+ (tested on GL.iNet BE9300)
-- **Starlink dish** accessible at `192.168.100.1:9200` (standard Starlink LAN)
-- **MAVLink autopilot** reachable over UDP from the router (e.g. CubePilot via `udpin:0.0.0.0:14552`)
+| Component | Requirement |
+|-----------|-------------|
+| Starlink dish | Any model with gRPC API access (Standard, Business, etc.) |
+| Companion computer | OpenWRT router with Python 3.11+ (GL.iNet GL-MT6000 recommended) |
+| Flight controller | ArduPilot 4.6.3+ with EKF3 (CubeOrangePlus or similar) |
+| Connection | MAVLink UDP between router and autopilot |
 
----
+## Quick Start
 
-## Installation
+```bash
+# 1. Clone to your development machine
+git clone --recurse-submodules https://github.com/jack7169/Starlink_Mavlink_PNT.git
 
-### 1. Clone the repository on your development machine
+# 2. Copy to router
+scp -r Starlink_Mavlink_PNT root@<router-ip>:/tmp/starnav-install
 
-```sh
-git clone https://github.com/jack7169/Starlink_Mavlink_PNT.git
-cd Starlink_Mavlink_PNT
+# 3. Install on router
+ssh root@<router-ip>
+cd /tmp/starnav-install && bash install.sh
+
+# 4. Edit configuration
+vi /etc/starnav.conf
+
+# 5. Start the service
+/etc/init.d/starnav start
+
+# 6. Open the web dashboard
+# http://<router-ip>:8081
 ```
 
-### 2. Copy the project to the router
+The installer is idempotent — run it again to update system packages or fix broken installs. Python package compilation may take 10-15 minutes on first install.
 
-The router does not have `rsync`. Use `tar` + `scp -O` (legacy SCP protocol):
+## ArduPilot Parameter Setup
 
-```sh
-tar czf /tmp/starnav-install.tar.gz \
-  --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' .
+Set these parameters on your flight controller:
 
-scp -O /tmp/starnav-install.tar.gz root@<router-ip>:/tmp/
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `EK3_SRC1_POSXY` | `3` | GPS for source set 1 (primary, always) |
+| `EK3_SRC2_POSXY` | `8` | External Position for source set 2 |
+| `EK3_EXTPOS_GATE` | `500` | Innovation gate (5-sigma, generous for Starlink noise) |
+| `EK3_EXTPOS_MODE` | `1` | GPS-fallback mode |
+| `EK3_EXTPOS_DBG` | `1` | Enable event-level debug messages |
+| `EK3_GLITCH_RAD` | `0` | Disable GPS glitch handler (prevents conflicts with EXTPOS) |
+| `ARSPD_USE` | `1` | Enable airspeed for velocity aiding during GPS-denied |
+| `AHRS_OPTIONS` | `24` | Enable recorded origin (bits 3+4) for GPS-denied boot |
 
-ssh root@<router-ip> \
-  'mkdir -p /tmp/starnav-install && tar xzf /tmp/starnav-install.tar.gz -C /tmp/starnav-install'
-```
-
-### 3. Run the installer on the router
-
-```sh
-ssh root@<router-ip> 'cd /tmp/starnav-install && sh install.sh'
-```
-
-The installer is idempotent — safe to re-run after updates. It will:
-
-- Install `python3` and `ntpd` via `opkg`
-- Install Python packages: `grpcio`, `protobuf`, `yagrc`, `typing-extensions`, `pymavlink`
-- Copy `starnav.py`, `starnav.sh`, and the required `starlink-grpc-tools` modules to `/opt/starnav/`
-- Install `/etc/starnav.conf` (preserved on re-runs; new defaults saved as `.new`)
-- Install and enable the procd init script at `/etc/init.d/starnav`
-- Configure a dedicated `uhttpd` instance on port 8081 for the web UI
-- Install web UI files to `/www/starnav/`
-
-> **Note:** `grpcio` may need to compile from source on ARM. This can take 10–30 minutes on first install. Subsequent runs skip this step if the package is already installed.
-
-### 4. Configure
-
-```sh
-ssh root@<router-ip> vi /etc/starnav.conf
-```
-
-At minimum, set `connection` under `[mavlink]` to point at your autopilot. See the [Configuration Reference](#configuration-reference) below.
-
-### 5. Start the service
-
-```sh
-ssh root@<router-ip> /etc/init.d/starnav start
-```
-
-The service starts automatically on every boot.
-
----
-
-## Fresh install (removing existing installation)
-
-```sh
-ssh root@<router-ip> '
-  /etc/init.d/starnav stop 2>/dev/null
-  /etc/init.d/starnav disable 2>/dev/null
-  rm -rf /opt/starnav /etc/init.d/starnav /etc/starnav.conf /www/starnav
-  uci -q delete uhttpd.starnav; uci commit uhttpd
-'
-```
-
-Then follow steps 2–5 above.
-
----
+**Source switching:** Assign an RC channel to auxfunc `90` (EKF Source Set). LOW = GPS (source set 1), MIDDLE = EXTPOS (source set 2).
 
 ## Configuration Reference
 
-`/etc/starnav.conf` uses INI format. All values have built-in defaults.
+All settings are in `/etc/starnav.conf` (INI format).
 
-### `[starlink]`
+### [starlink]
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `dish_address` | `192.168.100.1:9200` | gRPC address of the Starlink dish |
-| `gps_mode` | `auto` | Dish GPS behaviour on startup: `auto` (leave as-is), `enable`, or `disable` |
+| `dish_address` | `192.168.100.1:9200` | Starlink dish gRPC endpoint |
+| `gps_mode` | `auto` | Dish GPS control at startup: `auto`, `enable`, or `disable` |
 
-### `[mavlink]`
+### [mavlink]
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `connection` | `udpin:0.0.0.0:14552` | pymavlink connection string |
-| `source_system` | `242` | MAVLink system ID for StarNav |
-| `source_component` | `192` | MAVLink component ID for StarNav |
+| `source_system` | `242` | StarNav MAVLink system ID |
+| `source_component` | `192` | StarNav MAVLink component ID |
 | `target_system` | `2` | Autopilot system ID |
 | `target_component` | `1` | Autopilot component ID |
 
-**Common connection strings:**
-
-| String | Meaning |
-|--------|---------|
-| `udpin:0.0.0.0:14552` | Listen for autopilot on UDP port 14552 |
-| `udp:192.168.1.100:14550` | Send to autopilot at fixed IP |
-| `tcp:192.168.1.100:5760` | TCP connection to autopilot |
-
-### `[thresholds]`
+### [thresholds]
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `uncertainty_limit` | `200.0` | Max 99% uncertainty (metres) to allow forwarding |
+| `uncertainty_limit` | `200.0` | Max 99% uncertainty (meters) before gating blocks sends |
 | `min_stable_time` | `3.0` | Seconds uncertainty must stay below limit before sending |
-| `accuracy_jump_threshold` | `1.5` | Uncertainty drop (metres) that triggers an immediate correction send |
+| `accuracy_jump_threshold` | `1.5` | Accuracy improvement (meters) that triggers immediate send |
+| `staleness_timeout` | `3.0` | Seconds of unchanged gRPC position before marking stale |
 
-### `[logging]`
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `csv_dir` | `/root/starlink_logs` | Directory for CSV log files |
-| `csv_enabled` | `true` | Set to `false` to disable CSV logging (saves flash writes) |
-| `max_log_size_mb` | `100` | Maximum total CSV log folder size; oldest files are deleted to stay under the limit |
-
-### `[paths]`
+### [rates]
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `install_dir` | `/opt/starnav` | Root install directory on the router |
-| `grpc_tools_dir` | `starlink-grpc-tools` | Path to starlink-grpc-tools relative to `install_dir` |
+| `send_rate_active` | `0.5` | Send interval when StarNav is active EKF source (2 Hz) |
+| `send_rate_passive` | `1.0` | Send interval when GPS is primary (1 Hz buffer fill) |
+| `send_rate_degraded` | `2.0` | Send interval when quality is degraded (0.5 Hz) |
 
----
+### [logging]
 
-## Web UI
+| Key | Default | Description |
+|-----|---------|-------------|
+| `csv_dir` | `/root/starlink_logs` | CSV log file directory |
+| `csv_enabled` | `true` | Enable/disable CSV flight logging |
+| `max_log_size_mb` | `100` | Max total CSV folder size (oldest logs auto-deleted) |
 
-The web UI runs on port **8081** via a dedicated `uhttpd` instance, separate from the router's main admin interface.
+### [paths]
 
-```
-http://<router-ip>:8081/
-```
+| Key | Default | Description |
+|-----|---------|-------------|
+| `install_dir` | `/opt/starnav` | Installation root directory |
+| `grpc_tools_dir` | `starlink-grpc-tools` | Path to Starlink gRPC tools (relative to install_dir) |
 
-### Features
+## Web Dashboard
 
-- **Live status** — Process running state, PID, data freshness, dish address, MAVLink connection
-- **Starlink position** — Lat/lon/alt, 1σ and 99% uncertainty, stable time countdown, sending status, correction flag, EKF acceptance (last `COMMAND_ACK` result)
-- **Aircraft data** — GPS position (`GPS_RAW_INT`), EKF position (`GLOBAL_POSITION_INT`), roll/pitch/yaw (`ATTITUDE`), 3D position error vs Starlink
-- **Satellite map** — Live Leaflet map (ESRI satellite imagery) showing Starlink dish position, aircraft GPS position, uncertainty circle, and a 60-second position trail
-- **Debug log** — Live log stream via Server-Sent Events with colour-coded severity levels; pauseable
-- **Service control** — Start / Stop / Restart buttons (calls `/etc/init.d/starnav`)
-- **Fake GPS trigger** — Sends a 5-second GPS2 burst at 5 Hz using the current Starlink position
+Access at `http://<router-ip>:8081`. Features:
 
-### CGI endpoints
+- **Live satellite map** with aircraft position, Starlink position, and uncertainty circle
+- **Starlink Position card** — lat/lon, altitude, 1-sigma/99% uncertainty, send status, correction flag
+- **Aircraft card** — GPS position, EKF position, attitude, 3D position error
+- **EKF Health card** — active source (GPS/EXTPOS), position variance, quality gate status, position freshness, send rate, ACK acceptance rate
+- **Live log stream** via Server-Sent Events with color-coded levels
+- **Service controls** — Start, Stop, Restart buttons
+- **Help panel** — inline documentation with parameter reference and troubleshooting
+- **Update Now** — one-click git pull with live progress streaming
 
-| Path | Description |
-|------|-------------|
-| `cgi-bin/status.cgi` | JSON: process state + live position data from `/tmp/starnav_status.json` |
-| `cgi-bin/logs.cgi` | SSE stream: recent log history then live `logread` tail |
-| `cgi-bin/api.cgi` | POST JSON `{action}`: `start`, `stop`, `restart`, `status`, `fake_gps` |
+### Web API Endpoints
 
----
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/cgi-bin/status.cgi` | GET | Process status + live position JSON |
+| `/cgi-bin/api.cgi` | POST | Service control (`start`, `stop`, `restart`, `status`) |
+| `/cgi-bin/logs.cgi` | GET | SSE log stream |
+| `/cgi-bin/version.cgi` | GET | Git version + update check |
+| `/cgi-bin/update.cgi` | GET | SSE update progress stream |
 
-## Logs and diagnostics
+## MAVLink Protocol
 
-```sh
-# Live log output
+### Messages Sent
+
+| Message | Rate | Description |
+|---------|------|-------------|
+| `HEARTBEAT` | 1 Hz | Companion health (MAV_TYPE_ONBOARD_CONTROLLER) |
+| `COMMAND_INT 43003` | 0.5-2 Hz | External position estimate (lat/lon/accuracy) |
+| `SET_GPS_GLOBAL_ORIGIN` | Once | EKF origin from Starlink (only if no GPS fix) |
+
+### Messages Received
+
+| Message | Description |
+|---------|-------------|
+| `HEARTBEAT` | Autopilot connection + armed state |
+| `GPS_RAW_INT` | Raw GPS position for comparison |
+| `GLOBAL_POSITION_INT` | EKF position estimate |
+| `ATTITUDE` | Roll/pitch/yaw |
+| `EKF_STATUS_REPORT` | Filter health, variance, const_pos_mode |
+| `STATUSTEXT` | ExtPos rejection/glitch events, source switches |
+| `COMMAND_ACK` | Position estimate acceptance/rejection |
+
+## Logs and Diagnostics
+
+```bash
+# Live service logs
 logread -f -e starnav
 
 # Service status
 /etc/init.d/starnav status
 
-# CSV logs (if enabled)
-ls /root/starlink_logs/
+# CSV flight logs
+ls -la /root/starlink_logs/
+
+# Status JSON (updated ~5 Hz)
+cat /tmp/starnav_status.json | python3 -m json.tool
+
+# Version and update status
+curl http://localhost:8081/cgi-bin/version.cgi
 ```
 
-The console output format is:
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Service won't start | Check `logread -e starnav` for errors. Verify pymavlink: `python3 -c "from pymavlink import mavutil"` |
+| No Starlink position | Verify dish reachable: `ping 192.168.100.1`. Check gRPC: `python3 -c "import starlink_grpc; print(starlink_grpc.get_location())"` |
+| Position not sending | Check uncertainty below `uncertainty_limit` and stable for `min_stable_time`. Watch for "Not sending" in logs. |
+| EKF rejecting data | Verify `EK3_SRC2_POSXY=8`, `EK3_EXTPOS_GATE=500`. Set `EK3_EXTPOS_DBG=1` for rejection messages. |
+| High ACK rejection rate | May indicate large innovation. Check 3D accuracy in dashboard. |
+| Update check incorrect | Clear cache: `rm /tmp/starnav_git_remote` or append `?invalidate` to version.cgi URL. |
+| Web UI unreachable | Verify uhttpd on port 8081: `netstat -tlnp \| grep 8081`. Re-run `install.sh` if needed. |
+
+## Project Structure
 
 ```
-HH:MM:SS.mmm | GPS: lat,lon,alt | EKF: lat,lon,alt | Starlink: lat,lon,alt | R/P/Y: r,p,y | 3D Err: Xm | Star 99%: Ym | Correction: N
+starnav.py                  Main daemon (position forwarding + EKF feedback)
+starnav.sh                  Startup wrapper (config, NTP, dish GPS control)
+starnav.init                OpenWRT procd service definition
+starnav.conf                Configuration file (INI format)
+install.sh                  Idempotent installer for OpenWRT
+www/starnav/
+  index.html                Web dashboard (single-page app)
+  cgi-bin/
+    status.cgi              Process + position status API
+    api.cgi                 Service control API
+    logs.cgi                SSE log streaming
+    version.cgi             Git version + update check
+    update.cgi              SSE update progress streaming
+starlink-grpc-tools/        Starlink gRPC client (submodule)
 ```
-
-`>>> Sending External Position Estimate <<<` is printed whenever a position update is forwarded to the autopilot.
-
----
-
-## Project structure
-
-```
-.
-├── starnav.py              # Main forwarding daemon
-├── starnav.sh              # Wrapper: reads config, optional dish GPS control, launches starnav.py
-├── starnav.init            # procd init script (/etc/init.d/starnav)
-├── starnav.conf            # Default configuration file
-├── install.sh              # OpenWRT installer (idempotent)
-├── www/
-│   └── starnav/
-│       ├── index.html      # Web UI (single-page, no build step)
-│       └── cgi-bin/
-│           ├── status.cgi  # Process + position status API
-│           ├── logs.cgi    # SSE log stream
-│           └── api.cgi     # Service control API
-└── starlink-grpc-tools/    # Submodule: Starlink gRPC client library
-    ├── starlink_grpc.py    # gRPC location + control calls
-    ├── dish_control.py     # Dish GPS enable/disable
-    └── loop_util.py        # Utility helpers
-```
-
----
 
 ## Dependencies
 
-### System (installed via `opkg`)
+**System:** `python3`, `git`, `ntpd` or `sntpd`
 
-- `python3` (3.11+)
-- `ntpd` — required for accurate wall-clock timestamps (no RTC on the router)
+**Python:** `pymavlink`, `grpcio`, `protobuf`, `yagrc`, `typing-extensions`
 
-### Python (installed via `pip`)
-
-| Package | Purpose |
-|---------|---------|
-| `grpcio` | gRPC transport for Starlink dish API |
-| `protobuf` | Protobuf deserialisation |
-| `yagrc` | Reflection-based gRPC client (no `.proto` files needed) |
-| `typing-extensions` | Python version compatibility |
-| `pymavlink` | MAVLink message encode/decode and connection management |
-
----
-
-## MAVLink protocol details
-
-| Message | Direction | Usage |
-|---------|-----------|-------|
-| `HEARTBEAT` | TX | Sent on startup loop to register with the autopilot's UDP server |
-| `HEARTBEAT` | RX | Used to confirm autopilot presence before proceeding |
-| `SET_GPS_GLOBAL_ORIGIN` | TX | Sets EKF reference frame origin to Starlink position on startup |
-| `COMMAND_INT (43003)` | TX | External position estimate: param1=transmission_time, param3=1σ accuracy, param5/6=lat/lon |
-| `COMMAND_ACK` | RX | Autopilot acknowledgement of the position estimate; result=0 means accepted |
-| `GPS_RAW_INT` | RX | Aircraft raw GPS position (displayed in web UI, logged to CSV) |
-| `GLOBAL_POSITION_INT` | RX | EKF-fused aircraft position |
-| `ATTITUDE` | RX | Aircraft roll/pitch/yaw |
-| `GPS_INPUT` | TX | Fake GPS burst (GPS2 port, 3D fix) for EKF initialisation |
+All installed automatically by `install.sh`.
