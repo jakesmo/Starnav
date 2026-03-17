@@ -475,6 +475,38 @@
                 </div>
             </div>
 
+            <!-- EKF Health (from companion feedback) -->
+            <div class="card">
+                <div class="card-title">
+                    EKF Health
+                    <span id="ekfHealthBadge" class="badge" style="display:none"></span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Active source</span>
+                    <span id="ekfSource" class="stat-value val-muted">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Position variance</span>
+                    <span id="ekfPosVar" class="stat-value val-muted">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Quality gate</span>
+                    <span id="qualityGate" class="stat-value val-muted">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Position freshness</span>
+                    <span id="positionFreshness" class="stat-value val-muted">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Send rate</span>
+                    <span id="sendRate" class="stat-value val-muted">--</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">ACK accept rate</span>
+                    <span id="ackRate" class="stat-value val-muted">--</span>
+                </div>
+            </div>
+
         </div><!-- /status-col -->
 
         <!-- ── Map Column ─────────────────────────────── -->
@@ -1034,6 +1066,46 @@ function updateStatusUI(data) {
 
     // 3D accuracy
     setText('accuracy3d', fmtM(p.accuracy_3d, 2));
+
+    // EKF Health card
+    const src = p.ekf_source || 'unknown';
+    const srcClass = src === 'extpos' ? 'val-send' : src === 'gps' ? 'val-ok' : 'val-muted';
+    setText('ekfSource', src.toUpperCase(), srcClass);
+
+    const posVar = (p.ekf && p.ekf.pos_variance != null) ? p.ekf.pos_variance.toFixed(2) : '--';
+    const constPos = p.ekf && p.ekf.const_pos_mode;
+    const varClass = constPos ? 'val-error' : (posVar !== '--' && parseFloat(posVar) > 2) ? 'val-warn' : 'val-ok';
+    setText('ekfPosVar', constPos ? posVar + ' (CONST POS!)' : posVar, varClass);
+
+    const healthBadge = document.getElementById('ekfHealthBadge');
+    if (healthBadge) {
+        if (constPos) {
+            healthBadge.style.display = '';
+            healthBadge.textContent = 'NO AIDING';
+            healthBadge.className = 'badge badge-error';
+        } else if (src === 'extpos') {
+            healthBadge.style.display = '';
+            healthBadge.textContent = 'EXTPOS ACTIVE';
+            healthBadge.className = 'badge badge-sending';
+        } else {
+            healthBadge.style.display = 'none';
+        }
+    }
+
+    const qOk = !!p.quality_ok;
+    const pStale = !!p.position_stale;
+    setText('qualityGate', qOk ? 'PASS' : 'BLOCKED', qOk ? 'val-ok' : 'val-warn');
+    const freshAge = p.position_age != null ? p.position_age.toFixed(1) + 's' : '--';
+    setText('positionFreshness', pStale ? freshAge + ' STALE' : freshAge, pStale ? 'val-error' : 'val-ok');
+
+    const interval = p.send_interval || 1.0;
+    const rateHz = (1.0 / interval).toFixed(1);
+    setText('sendRate', rateHz + ' Hz (' + interval.toFixed(1) + 's)');
+
+    const ackPct = p.ack_accept_rate != null ? p.ack_accept_rate.toFixed(0) + '%' : '--';
+    const ackClass = (p.ack_accept_rate != null && p.ack_accept_rate < 50) ? 'val-error' :
+                     (p.ack_accept_rate != null && p.ack_accept_rate < 90) ? 'val-warn' : 'val-ok';
+    setText('ackRate', ackPct, ackClass);
 
     // Track in-air state for fake GPS lockout
     _aircraftInAir = !!p.in_air;

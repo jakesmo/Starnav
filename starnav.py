@@ -9,6 +9,7 @@ import os
 import sys
 import signal
 import json
+from collections import deque
 
 # -------------------------
 # Argument Parsing
@@ -46,6 +47,12 @@ TARGET_COMP = config.getint("mavlink", "target_component", fallback=1)
 UNCERTAINTY_LIMIT = config.getfloat("thresholds", "uncertainty_limit", fallback=20.0)
 MIN_STABLE_TIME = config.getfloat("thresholds", "min_stable_time", fallback=3.0)
 ACCURACY_JUMP_THRESHOLD = config.getfloat("thresholds", "accuracy_jump_threshold", fallback=1.5)
+STALENESS_TIMEOUT = config.getfloat("thresholds", "staleness_timeout", fallback=3.0)
+
+# Send rates
+SEND_RATE_ACTIVE = config.getfloat("rates", "send_rate_active", fallback=0.5)    # 2 Hz when active source
+SEND_RATE_PASSIVE = config.getfloat("rates", "send_rate_passive", fallback=1.0)   # 1 Hz passive
+SEND_RATE_DEGRADED = config.getfloat("rates", "send_rate_degraded", fallback=2.0) # 0.5 Hz degraded
 
 # Logging
 CSV_DIR = config.get("logging", "csv_dir", fallback=".")
@@ -211,19 +218,27 @@ def write_status_file(data):
             "lat": sf(data["ekf_lat"]),
             "lon": sf(data["ekf_lon"]),
             "alt": sf(data["ekf_alt"], 2),
+            "const_pos_mode": data.get("ekf_const_pos", False),
+            "pos_variance": sf(data.get("ekf_pos_var", float("nan")), 3),
         },
         "attitude": {
             "roll":  sf(data["roll"],  2),
             "pitch": sf(data["pitch"], 2),
             "yaw":   sf(data["yaw"],   2),
         },
-        "accuracy_3d":     sf(data["accuracy"], 3),
-        "sending":         data["sending"],
-        "correction":      data["correction"],
-        "last_ack_result": data["last_ack_result"],
-        "fake_gps_active": data["fake_gps_active"],
-        "is_armed":        data["is_armed"],
-        "in_air":          data["in_air"],
+        "accuracy_3d":      sf(data["accuracy"], 3),
+        "sending":          data["sending"],
+        "send_interval":    data["send_interval"],
+        "correction":       data["correction"],
+        "last_ack_result":  data["last_ack_result"],
+        "fake_gps_active":  data["fake_gps_active"],
+        "is_armed":         data["is_armed"],
+        "in_air":           data["in_air"],
+        "quality_ok":       data.get("quality_ok", False),
+        "position_stale":   data.get("position_stale", False),
+        "position_age":     sf(data.get("position_age", 0.0), 1),
+        "ekf_source":       data.get("ekf_source", "unknown"),
+        "ack_accept_rate":  sf(data.get("ack_accept_rate", 0.0), 1),
     }
     try:
         tmp = STATUS_FILE + ".tmp"
@@ -265,24 +280,28 @@ while True:
         break
 
 # -------------------------
-# Set GPS global origin from Starlink
+# Conditional GPS origin setting
 # -------------------------
-origin = starlink_grpc.get_location(context=starlink_context)
-ref_lat = float(origin.lla.lat)
-ref_lon = float(origin.lla.lon)
-ref_alt = float(origin.lla.alt)
+# Only set origin if GPS doesn't already have a fix — avoids conflicting
+# with GPS-set or recorded origin on the autopilot side.
+gps_check = mav.recv_match(type="GPS_RAW_INT", blocking=True, timeout=2.0)
+if gps_check is None or gps_check.fix_type < 3:
+    origin = starlink_grpc.get_location(context=starlink_context)
+    ref_lat = float(origin.lla.lat)
+    ref_lon = float(origin.lla.lon)
+    ref_alt = float(origin.lla.alt)
 
-print(f"Setting origin to Starlink: {ref_lat}, {ref_lon}, {ref_alt}")
-
-mav.mav.set_gps_global_origin_send(
-    TARGET_SYS,
-    int(ref_lat * 1e7),             # latitude (degE7)
-    int(ref_lon * 1e7),             # longitude (degE7)
-    int(ref_alt * 1000),            # altitude (mm, MSL)
-    int(time.time() * 1e6)          # time_usec
-)
-
-print("Origin set.")
+    print(f"No GPS fix -- setting origin from Starlink: {ref_lat}, {ref_lon}, {ref_alt}")
+    mav.mav.set_gps_global_origin_send(
+        TARGET_SYS,
+        int(ref_lat * 1e7),
+        int(ref_lon * 1e7),
+        int(ref_alt * 1000),
+        int(time.time() * 1e6)
+    )
+    print("Origin set from Starlink.")
+else:
+    print(f"GPS fix available (type={gps_check.fix_type}), skipping origin set.")
 
 # -------------------------
 # Cleanup handler
@@ -318,7 +337,10 @@ if CSV_ENABLED:
             "Yaw (deg)",
             "3D Accuracy (m)",
             "Starlink Uncertainty (m, 99%)",
-            "Correction"
+            "Correction",
+            "Quality OK",
+            "Position Stale",
+            "EKF Source",
         ])
     print(f"Logging to {CSV_FILE}")
     enforce_log_limit()
@@ -329,17 +351,7 @@ star_unc_prev = None
 _last_log_cleanup = 0
 _last_send_time = 0.0
 _last_send_epoch = 0.0
-SEND_INTERVAL = 1.0  # Send external position estimate every 1 second
-
-def wait_for_ack(mav, command_id, timeout=1.0):
-    start_time = time.monotonic()
-
-    while time.monotonic() - start_time < timeout:
-        ack = mav.recv_match(type="COMMAND_ACK", blocking=False)
-        if ack and ack.command == command_id:
-            return ack
-
-    return None
+_last_heartbeat_time = 0.0
 
 # -------------------------
 # Main loop
@@ -347,73 +359,155 @@ def wait_for_ack(mav, command_id, timeout=1.0):
 try:
     # Persistent state for latest MAVLink messages
     gps_lat = gps_lon = gps_alt = float("nan")
+    gps_fix_type = 0
     ekf_lat = ekf_lon = ekf_alt = float("nan")
     roll = pitch = yaw = float("nan")
     is_armed = False
     relative_alt_m = 0.0
 
-    # Persistent state for Starlink and derived values (fallback when inner try fails)
+    # EKF feedback state
+    ekf_flags = 0
+    ekf_pos_var = float("nan")
+    ekf_const_pos = False
+    ekf_source = "unknown"  # "gps", "extpos", "unknown"
+
+    # ACK tracking (rolling window)
+    ack_history = deque(maxlen=20)  # True=accepted, False=rejected
+    last_ack_result = None
+
+    # Position freshness tracking
+    prev_star_lat = prev_star_lon = float("nan")
+    position_fresh_time = time.monotonic()
+
+    # Quality gating state
+    stable_start = None
+    stable_duration = 0.0
+
+    # Persistent state for Starlink and derived values
     star_lat = star_lon = star_alt = float("nan")
     star_unc_1sigma = star_unc_99 = float("nan")
     accuracy = float("nan")
     correction = "N"
     timestamp = datetime.now(UTC)
-    last_ack_result = None   # None = never sent; 0 = accepted; other = rejected
-    fake_gps_until  = None   # monotonic time when fake GPS burst should stop
+    fake_gps_until = None
 
     while True:
         try:
             timestamp = datetime.now(UTC)
+            now_monotonic = time.monotonic()
+
+            # ---- Heartbeat (1 Hz) ----
+            if now_monotonic - _last_heartbeat_time >= 1.0:
+                mav.mav.heartbeat_send(
+                    mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
+                    mavutil.mavlink.MAV_AUTOPILOT_INVALID,
+                    0, 0,
+                    mavutil.mavlink.MAV_STATE_ACTIVE
+                )
+                _last_heartbeat_time = now_monotonic
 
             # ---- Drain MAVLink buffer, keep latest of each type ----
+            # Includes EKF feedback, STATUSTEXT, and async COMMAND_ACK
             while True:
                 msg = mav.recv_match(
-                    type=["GPS_RAW_INT", "GLOBAL_POSITION_INT", "ATTITUDE", "HEARTBEAT"],
+                    type=["GPS_RAW_INT", "GLOBAL_POSITION_INT", "ATTITUDE",
+                          "HEARTBEAT", "EKF_STATUS_REPORT", "STATUSTEXT",
+                          "COMMAND_ACK"],
                     blocking=False
                 )
                 if msg is None:
                     break
+
+                msg_type = msg.get_type()
+
+                # COMMAND_ACK — async, no source filter (comes from autopilot)
+                if msg_type == "COMMAND_ACK" and msg.command == 43003:
+                    last_ack_result = msg.result
+                    accepted = (msg.result == 0)
+                    ack_history.append(accepted)
+                    if not accepted:
+                        print(f"!! ExtPos REJECTED (result={msg.result})")
+                    continue
+
+                # STATUSTEXT — watch for ExtPos/EKF events
+                if msg_type == "STATUSTEXT":
+                    text = msg.text
+                    lower = text.lower()
+                    if "extpos" in lower or "ekf source set" in lower:
+                        print(f"[EKF] {text}")
+                    if "ekf source set 2" in lower:
+                        ekf_source = "extpos"
+                    elif "ekf source set 1" in lower:
+                        ekf_source = "gps"
+                    continue
+
+                # Filter by target system for telemetry messages
                 if msg.get_srcSystem() != TARGET_SYS:
                     continue
 
-                msg_type = msg.get_type()
                 if msg_type == "GPS_RAW_INT":
                     gps_lat = msg.lat / 1e7
                     gps_lon = msg.lon / 1e7
-                    gps_alt = msg.alt / 1000.0  # mm -> meters
+                    gps_alt = msg.alt / 1000.0
+                    gps_fix_type = msg.fix_type
                 elif msg_type == "GLOBAL_POSITION_INT":
                     ekf_lat = msg.lat / 1e7
                     ekf_lon = msg.lon / 1e7
-                    ekf_alt = msg.alt / 1000.0  # mm -> meters
-                    relative_alt_m = msg.relative_alt / 1000.0  # mm -> meters
+                    ekf_alt = msg.alt / 1000.0
+                    relative_alt_m = msg.relative_alt / 1000.0
                 elif msg_type == "ATTITUDE":
                     roll = math.degrees(msg.roll)
                     pitch = math.degrees(msg.pitch)
                     yaw = math.degrees(msg.yaw)
                 elif msg_type == "HEARTBEAT":
                     is_armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                elif msg_type == "EKF_STATUS_REPORT":
+                    ekf_flags = msg.flags
+                    ekf_pos_var = msg.pos_horiz_variance
+                    ekf_const_pos = bool(ekf_flags & 128)
+                    if ekf_const_pos and ekf_source == "extpos":
+                        print("!! WARNING: EKF in const_pos_mode while we are active source !!")
 
             # ---- Read Starlink ----
             loc = starlink_grpc.get_location(context=starlink_context)
             star_lat = float(loc.lla.lat)
             star_lon = float(loc.lla.lon)
             star_alt = float(loc.lla.alt)
-            star_unc_1sigma = float(loc.sigma_m)    # 1 standard deviation
-            star_unc_99 = star_unc_1sigma * 3        # 99% confidence
+            star_unc_1sigma = float(loc.sigma_m)
+            star_unc_99 = star_unc_1sigma * 3
+
+            # ---- Position freshness tracking ----
+            if not (math.isnan(star_lat) or math.isnan(prev_star_lat)):
+                if star_lat != prev_star_lat or star_lon != prev_star_lon:
+                    position_fresh_time = now_monotonic
+            prev_star_lat, prev_star_lon = star_lat, star_lon
+
+            position_age = now_monotonic - position_fresh_time
+            position_stale = position_age > STALENESS_TIMEOUT
+
+            # ---- Quality gating ----
+            if not math.isnan(star_unc_99) and star_unc_99 < UNCERTAINTY_LIMIT:
+                if stable_start is None:
+                    stable_start = now_monotonic
+                stable_duration = now_monotonic - stable_start
+            else:
+                stable_start = None
+                stable_duration = 0.0
+
+            # Correction flag: significant accuracy improvement
+            correction = "N"
+            if star_unc_prev is not None and not math.isnan(star_unc_99):
+                if star_unc_prev - star_unc_99 > ACCURACY_JUMP_THRESHOLD:
+                    correction = "Y"
+            star_unc_prev = star_unc_99
+
+            quality_ok = (stable_duration >= MIN_STABLE_TIME) or (correction == "Y")
 
             # ---- Calculate 3D Accuracy ----
             accuracy = distance_3d(
                 gps_lat, gps_lon, gps_alt,
                 star_lat, star_lon, star_alt
             )
-
-            # ---- Determine Correction Flag ----
-            correction = "N"
-            if star_unc_prev is not None:
-                if star_unc_prev - star_unc_99 > ACCURACY_JUMP_THRESHOLD:
-                    correction = "Y"
-
-            star_unc_prev = star_unc_99
 
             # ---- Log to CSV ----
             if CSV_ENABLED:
@@ -422,77 +516,76 @@ try:
                     writer.writerow([
                         timestamp.strftime("%Y-%m-%d"),
                         timestamp.strftime("%H:%M:%S.%f")[:-3],
-                        gps_lat,
-                        gps_lon,
-                        gps_alt,
-                        ekf_lat,
-                        ekf_lon,
-                        ekf_alt,
-                        star_lat,
-                        star_lon,
-                        star_alt,
-                        roll,
-                        pitch,
-                        yaw,
-                        accuracy,
-                        star_unc_99,
-                        correction
+                        gps_lat, gps_lon, gps_alt,
+                        ekf_lat, ekf_lon, ekf_alt,
+                        star_lat, star_lon, star_alt,
+                        roll, pitch, yaw,
+                        accuracy, star_unc_99, correction,
+                        quality_ok, position_stale, ekf_source,
                     ])
-                now_mono = time.monotonic()
-                if now_mono - _last_log_cleanup > 60:
-                    _last_log_cleanup = now_mono
+                if now_monotonic - _last_log_cleanup > 60:
+                    _last_log_cleanup = now_monotonic
                     enforce_log_limit()
+
+            # ACK acceptance rate
+            ack_accept_rate = (sum(ack_history) / len(ack_history) * 100) if ack_history else 0.0
 
             print(
                 f"{timestamp.strftime('%H:%M:%S.%f')[:-3]} | "
-                f"GPS: {gps_lat},{gps_lon},{gps_alt} | "
-                f"EKF: {ekf_lat},{ekf_lon},{ekf_alt} | "
-                f"Starlink: {star_lat},{star_lon},{star_alt} | "
-                f"R/P/Y: {roll:.1f},{pitch:.1f},{yaw:.1f} | "
-                f"3D Err: {accuracy:.2f}m | "
-                f"Star 99%: {star_unc_99:.2f}m |"
-                f"Correction: {correction}"
+                f"Star: {star_lat:.6f},{star_lon:.6f} | "
+                f"Unc99: {star_unc_99:.1f}m | "
+                f"3D: {accuracy:.1f}m | "
+                f"Q:{'OK' if quality_ok else 'NO'} "
+                f"S:{'STALE' if position_stale else 'FRESH'} | "
+                f"EKF:{ekf_source} var:{ekf_pos_var:.2f} | "
+                f"ACK:{ack_accept_rate:.0f}%"
             )
 
         except Exception as e:
-            print(f"Logging error: {e}")
+            print(f"Loop error: {e}")
 
-        now_monotonic = time.monotonic()
+        # ---- Adaptive send rate ----
+        if ekf_source == "extpos":
+            send_interval = SEND_RATE_ACTIVE    # 2 Hz when we're the active source
+        elif quality_ok:
+            send_interval = SEND_RATE_PASSIVE   # 1 Hz passive buffer fill
+        else:
+            send_interval = SEND_RATE_DEGRADED  # 0.5 Hz degraded
 
-        # Send external position estimate every SEND_INTERVAL seconds
+        # ---- Send external position estimate ----
         sending = False
-        if (now_monotonic - _last_send_time) >= SEND_INTERVAL:
-            if not (math.isnan(star_lat) or math.isnan(star_lon)):
+        if (now_monotonic - _last_send_time) >= send_interval:
+            can_send = (
+                not math.isnan(star_lat) and
+                not math.isnan(star_lon) and
+                quality_ok and
+                not position_stale
+            )
+            if can_send:
                 sending = True
                 _last_send_time = now_monotonic
                 _last_send_epoch = time.time()
-                print(">>> Sending External Position Estimate <<<")
 
                 mav.mav.command_int_send(
                     TARGET_SYS, TARGET_COMP,
                     0, 43003,
                     0, 0,
-                    get_transmission_time(),    # param1: transmission_time (wraps at 250s per spec)
-                    0,                          # param2: processing_time (0 = unknown)
-                    star_unc_1sigma,            # param3: accuracy (1 standard deviation per spec)
-                    0,                          # param4: empty
-                    int(star_lat * 1e7),        # param5: latitude
-                    int(star_lon * 1e7),        # param6: longitude
-                    math.nan                    # param7: altitude (NaN, not yet supported)
+                    get_transmission_time(),
+                    0,
+                    star_unc_1sigma,
+                    0,
+                    int(star_lat * 1e7),
+                    int(star_lon * 1e7),
+                    math.nan
                 )
-
-                # ---- Wait for ACK ----
-                ack = wait_for_ack(mav, 43003, timeout=1.0)
-
-                if ack:
-                    last_ack_result = ack.result
-                    print(
-                        f"ACK Received | "
-                        f"Command: {ack.command} | "
-                        f"Result: {ack.result}"
-                    )
-                else:
-                    print("No COMMAND_ACK received.")
+            elif not quality_ok and (now_monotonic - _last_send_time) > 5.0:
+                # Log why we're not sending (every 5s to avoid spam)
+                reasons = []
+                if not quality_ok:
+                    reasons.append(f"quality(unc99={star_unc_99:.1f}m,stable={stable_duration:.1f}s)")
+                if position_stale:
+                    reasons.append(f"stale({position_age:.1f}s)")
+                print(f"-- Not sending: {', '.join(reasons)}")
 
         # ---- Fake GPS trigger ----
         in_air = is_armed and relative_alt_m > 2.0
@@ -516,25 +609,31 @@ try:
 
         # Write status file for web UI (every iteration, ~5 Hz)
         write_status_file({
-            "ts":             timestamp,
-            "star_lat":       star_lat,       "star_lon":       star_lon,
-            "star_alt":       star_alt,
-            "star_unc_1sigma": star_unc_1sigma, "star_unc_99":   star_unc_99,
-            "gps_lat":        gps_lat,         "gps_lon":       gps_lon,
-            "gps_alt":        gps_alt,
-            "ekf_lat":        ekf_lat,         "ekf_lon":       ekf_lon,
-            "ekf_alt":        ekf_alt,
-            "roll":           roll,             "pitch":         pitch,
-            "yaw":            yaw,
-            "accuracy":       accuracy,
-            "sending":        sending,
+            "ts":              timestamp,
+            "star_lat":        star_lat,        "star_lon":        star_lon,
+            "star_alt":        star_alt,
+            "star_unc_1sigma": star_unc_1sigma,  "star_unc_99":    star_unc_99,
+            "gps_lat":         gps_lat,          "gps_lon":        gps_lon,
+            "gps_alt":         gps_alt,
+            "ekf_lat":         ekf_lat,          "ekf_lon":        ekf_lon,
+            "ekf_alt":         ekf_alt,
+            "ekf_const_pos":   ekf_const_pos,    "ekf_pos_var":    ekf_pos_var,
+            "roll":            roll,              "pitch":          pitch,
+            "yaw":             yaw,
+            "accuracy":        accuracy,
+            "sending":         sending,
+            "send_interval":   send_interval,
             "last_send_epoch": _last_send_epoch,
-            "send_interval":  SEND_INTERVAL,
-            "correction":     correction,
+            "correction":      correction,
             "last_ack_result": last_ack_result,
             "fake_gps_active": fake_gps_until is not None,
             "is_armed":        is_armed,
             "in_air":          in_air,
+            "quality_ok":      quality_ok,
+            "position_stale":  position_stale,
+            "position_age":    position_age,
+            "ekf_source":      ekf_source,
+            "ack_accept_rate": ack_accept_rate,
         })
 
         time.sleep(0.2)
