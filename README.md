@@ -60,6 +60,20 @@ sh /opt/starnav/install.sh --uninstall
 
 The installer downloads the repo, installs all dependencies, configures uhttpd, and enables the service. It is idempotent — run it again to update. Python package compilation (grpcio) may take 10-30 minutes on first install.
 
+### Offline Package Bundling
+
+System packages (.ipk files) can be bundled in the repo for fast offline installs (skips the ~30s `opkg update`). Run once on any OpenWRT device:
+
+```bash
+sh install.sh --refresh-packages
+cd /opt/starnav
+git add packages/
+git commit -m "chore: bundle offline packages"
+git push
+```
+
+All future installs on the same architecture will use the bundled .ipk files with no network dependency for system packages.
+
 ## ArduPilot Parameter Setup
 
 Set these parameters on your flight controller:

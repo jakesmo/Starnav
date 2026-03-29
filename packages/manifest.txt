@@ -1,0 +1,12 @@
+# StarNav Offline Package Bundle
+#
+# This directory is empty until packages are downloaded.
+# Run on an OpenWRT device to populate:
+#
+#   sh install.sh --refresh-packages
+#
+# Then commit the .ipk files to git for offline installs:
+#
+#   git add packages/
+#   git commit -m "chore: bundle offline packages"
+#   git push

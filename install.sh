@@ -5,8 +5,9 @@
 #   wget -qO /tmp/starnav-install.sh https://raw.githubusercontent.com/jack7169/Starnav/main/install.sh && sh /tmp/starnav-install.sh
 #
 # Usage:
-#   sh install.sh              # install or update
-#   sh install.sh --uninstall  # remove everything
+#   sh install.sh                    # install or update
+#   sh install.sh --uninstall        # remove everything
+#   sh install.sh --refresh-packages # re-download bundled .ipk files from feeds
 #   sh install.sh --help
 
 set -e
@@ -20,6 +21,10 @@ INSTALL_DIR="/opt/starnav"
 CONFIG_FILE="/etc/starnav.conf"
 INIT_SCRIPT="/etc/init.d/starnav"
 MIN_DISK_MB=50
+
+# System packages bundled as .ipk files in packages/
+OPKG_PACKAGES="git git-http python3 python3-base python3-light python3-logging python3-email python3-openssl python3-ctypes python3-codecs python3-multiprocessing libpython3 zlib libopenssl3 ca-bundle libcurl4"
+NTP_PACKAGES="ntpd sntpd"
 
 PIP_PACKAGES="grpcio protobuf yagrc typing-extensions pymavlink"
 
@@ -43,14 +48,17 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --uninstall|uninstall)
             ACTION="uninstall"; shift ;;
+        --refresh-packages|refresh-packages)
+            ACTION="refresh"; shift ;;
         --help|-h)
             echo "StarNav Installer"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --uninstall   Remove StarNav and all associated files"
-            echo "  --help        Show this help message"
+            echo "  --uninstall          Remove StarNav and all associated files"
+            echo "  --refresh-packages   Re-download bundled .ipk files from opkg feeds"
+            echo "  --help               Show this help message"
             echo ""
             echo "One-liner install:"
             echo "  wget -qO /tmp/starnav-install.sh https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/install.sh && sh /tmp/starnav-install.sh"
@@ -152,16 +160,39 @@ download_repo() {
 }
 
 #############################################
-# INSTALL: SYSTEM PACKAGES
+# INSTALL: SYSTEM PACKAGES (offline .ipk)
 #############################################
 install_system_packages() {
-    info "Updating package feeds..."
-    opkg update >/dev/null 2>&1 || warn "opkg update failed (continuing with cached feeds)"
+    local pkg_dir="$INSTALL_DIR/packages"
 
-    info "Installing system packages..."
-    opkg install git git-http python3 || true
-    opkg install ntpd || opkg install sntpd || true
-    ok "System packages installed"
+    # Prefer bundled .ipk files (no network needed)
+    if [ -d "$pkg_dir" ] && ls "$pkg_dir"/*.ipk >/dev/null 2>&1; then
+        info "Installing system packages from bundled .ipk files..."
+        # shellcheck disable=SC2086
+        opkg install "$pkg_dir"/*.ipk --force-depends \
+            2>&1 | grep -vE "has no valid architecture|Configuring|already installed" || true
+    else
+        # Fallback: download from feeds (slow, requires network)
+        warn "No bundled packages found -- falling back to opkg feeds (slow)"
+        info "Updating package feeds..."
+        opkg update >/dev/null 2>&1 || warn "opkg update failed (continuing with cached feeds)"
+
+        info "Installing system packages from feeds..."
+        opkg install git git-http python3 || true
+    fi
+
+    # NTP: try bundled first, then feeds
+    if ! command -v ntpd >/dev/null 2>&1 && ! command -v sntpd >/dev/null 2>&1; then
+        opkg install ntpd 2>/dev/null || opkg install sntpd 2>/dev/null || \
+            warn "Could not install NTP client (clock sync may not work)"
+    fi
+
+    # Verify critical packages
+    if command -v python3 >/dev/null 2>&1; then
+        ok "System packages installed (python3: $(python3 --version 2>&1 | awk '{print $2}'))"
+    else
+        fail "python3 not available after package install"
+    fi
 }
 
 #############################################
@@ -298,11 +329,11 @@ do_install() {
     check_environment
     check_disk_space
 
-    # Phase 1: Get the code
+    # Phase 1: Get the code (includes bundled packages)
     download_repo
     set_permissions
 
-    # Phase 2: System dependencies
+    # Phase 2: System dependencies (from bundled .ipk or feeds)
     install_system_packages
     install_python_packages
 
@@ -440,9 +471,105 @@ do_uninstall() {
 }
 
 #############################################
+# REFRESH PACKAGES
+#############################################
+do_refresh_packages() {
+    echo ""
+    echo "=========================================="
+    echo "  StarNav Package Refresh"
+    echo "=========================================="
+    echo ""
+    info "Downloads fresh .ipk files from opkg feeds for offline installation."
+    info "Run this once, then commit packages/ to git for future installs."
+    echo ""
+
+    check_environment
+
+    # Determine install dir (might be running from repo checkout)
+    local pkg_dir
+    if [ -d "$INSTALL_DIR/packages" ] || [ -d "$INSTALL_DIR" ]; then
+        pkg_dir="$INSTALL_DIR/packages"
+    elif [ -f "$(dirname "$0")/starnav.py" ]; then
+        pkg_dir="$(cd "$(dirname "$0")" && pwd)/packages"
+    else
+        fail "Cannot find StarNav installation. Run from repo or install first."
+    fi
+
+    info "Updating package feeds (this may take ~30 seconds)..."
+    opkg update >/dev/null 2>&1 || fail "opkg update failed"
+
+    # Clear and recreate package directory
+    rm -rf "$pkg_dir"
+    mkdir -p "$pkg_dir"
+
+    local tmp_dl="/tmp/starnav-pkg-download"
+    rm -rf "$tmp_dl" && mkdir -p "$tmp_dl"
+    cd "$tmp_dl"
+
+    info "Downloading packages..."
+    local all_pkgs="$OPKG_PACKAGES $NTP_PACKAGES"
+    local success=0 failed=0
+    for pkg in $all_pkgs; do
+        if opkg download "$pkg" 2>/dev/null; then
+            success=$((success + 1))
+        else
+            warn "Failed to download: $pkg (may not exist for this architecture)"
+            failed=$((failed + 1))
+        fi
+    done
+
+    # Move all downloaded .ipk files to package directory
+    mv "$tmp_dl"/*.ipk "$pkg_dir/" 2>/dev/null || true
+    rm -rf "$tmp_dl"
+
+    # Write manifest
+    local arch kernel hostname
+    arch=$(opkg print-architecture 2>/dev/null | grep -oE "aarch64[^ ]*" | head -1)
+    kernel=$(uname -r)
+    hostname=$(cat /proc/sys/kernel/hostname 2>/dev/null || echo 'unknown')
+
+    cat > "$pkg_dir/manifest.txt" << EOF
+# StarNav Offline Package Bundle
+# Downloaded: $(date +%Y-%m-%d)
+# Source: $hostname
+# Architecture: ${arch:-unknown}
+# Kernel: ${kernel:-unknown}
+#
+# Packages:
+EOF
+    for f in "$pkg_dir"/*.ipk; do
+        [ -f "$f" ] && echo "#   $(basename "$f")" >> "$pkg_dir/manifest.txt"
+    done
+    cat >> "$pkg_dir/manifest.txt" << 'EOF'
+#
+# To refresh: sh install.sh --refresh-packages
+# Then commit packages/ to git for offline installs on other devices.
+EOF
+
+    local pkg_count
+    pkg_count=$(ls "$pkg_dir"/*.ipk 2>/dev/null | wc -l | tr -d ' ')
+    local pkg_size
+    pkg_size=$(du -sh "$pkg_dir" 2>/dev/null | awk '{print $1}')
+
+    echo ""
+    ok "Package refresh complete:"
+    echo "    Directory:  $pkg_dir"
+    echo "    Packages:   $pkg_count downloaded, $failed failed"
+    echo "    Total size: $pkg_size"
+    echo ""
+    echo "    Next steps:"
+    echo "    1. cd $INSTALL_DIR"
+    echo "    2. git add packages/"
+    echo "    3. git commit -m 'chore: refresh bundled packages'"
+    echo "    4. git push"
+    echo ""
+}
+
+#############################################
 # MAIN
 #############################################
 case "$ACTION" in
     install)   do_install ;;
     uninstall) do_uninstall ;;
+    refresh)   do_refresh_packages ;;
 esac
