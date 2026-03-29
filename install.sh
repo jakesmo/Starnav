@@ -173,17 +173,19 @@ install_system_packages() {
             2>&1 | grep -vE "has no valid architecture|Configuring|already installed" || true
     else
         # Fallback: download from feeds (slow, requires network)
-        warn "No bundled packages found -- falling back to opkg feeds (slow)"
+        warn "No bundled packages found -- falling back to opkg feeds (this takes ~30s)"
         info "Updating package feeds..."
-        opkg update >/dev/null 2>&1 || warn "opkg update failed (continuing with cached feeds)"
+        opkg update 2>&1 | grep -vE "has no valid architecture|ignoring" || warn "opkg update failed (continuing with cached feeds)"
 
         info "Installing system packages from feeds..."
-        opkg install git git-http python3 || true
+        opkg install git git-http python3 2>&1 \
+            | grep -vE "has no valid architecture|ignoring|Updating database|Database update" || true
     fi
 
     # NTP: try bundled first, then feeds
     if ! command -v ntpd >/dev/null 2>&1 && ! command -v sntpd >/dev/null 2>&1; then
-        opkg install ntpd 2>/dev/null || opkg install sntpd 2>/dev/null || \
+        opkg install ntpd 2>&1 | grep -vE "has no valid architecture|ignoring" || \
+            opkg install sntpd 2>&1 | grep -vE "has no valid architecture|ignoring" || \
             warn "Could not install NTP client (clock sync may not work)"
     fi
 
@@ -311,6 +313,7 @@ install_web_server() {
 # INSTALL: PERMISSIONS
 #############################################
 set_permissions() {
+    chmod +x "${INSTALL_DIR}/install.sh"
     chmod +x "${INSTALL_DIR}/starnav.sh"
     chmod +x "${INSTALL_DIR}/www/starnav/cgi-bin/"*.cgi 2>/dev/null || true
     ok "File permissions set"
