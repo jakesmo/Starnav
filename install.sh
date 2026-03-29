@@ -264,6 +264,34 @@ install_config() {
         info "New defaults saved to ${CONFIG_FILE}.new for reference."
     else
         cp "${INSTALL_DIR}/starnav.conf" "$CONFIG_FILE"
+
+        # Ask for essential settings on fresh install
+        echo ""
+        info "First-time configuration:"
+        echo ""
+
+        # GPS mode
+        printf "  Dish GPS mode [disable/enable/auto] (default: disable): "
+        read gps_mode
+        case "$gps_mode" in
+            enable|auto) ;;
+            *)           gps_mode="disable" ;;
+        esac
+        sed -i "s/^gps_mode = .*/gps_mode = $gps_mode/" "$CONFIG_FILE"
+
+        # MAVLink target system
+        printf "  Autopilot MAVLink system ID (default: 2): "
+        read target_sys
+        target_sys="${target_sys:-2}"
+        sed -i "s/^target_system = .*/target_system = $target_sys/" "$CONFIG_FILE"
+
+        # MAVLink connection
+        printf "  MAVLink connection string (default: udpin:0.0.0.0:14552): "
+        read mav_conn
+        mav_conn="${mav_conn:-udpin:0.0.0.0:14552}"
+        sed -i "s|^connection = .*|connection = $mav_conn|" "$CONFIG_FILE"
+
+        echo ""
         ok "Config installed to $CONFIG_FILE"
     fi
 
