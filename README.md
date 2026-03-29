@@ -42,27 +42,23 @@ Position data:              Quality gating:              EKF3 Kalman fusion:
 ## Quick Start
 
 ```bash
-# 1. Clone to your development machine
-git clone --recurse-submodules https://github.com/jack7169/Starnav.git
+# One-liner install (run on the OpenWRT router):
+wget -qO /tmp/starnav-install.sh https://raw.githubusercontent.com/jack7169/Starnav/main/install.sh && sh /tmp/starnav-install.sh
 
-# 2. Copy to router
-scp -r Starnav root@<router-ip>:/tmp/starnav-install
-
-# 3. Install on router
-ssh root@<router-ip>
-cd /tmp/starnav-install && bash install.sh
-
-# 4. Edit configuration
+# Edit configuration
 vi /etc/starnav.conf
 
-# 5. Start the service
+# Start the service
 /etc/init.d/starnav start
 
-# 6. Open the web dashboard
+# Open the web dashboard
 # http://<router-ip>:8081
+
+# Uninstall
+sh /opt/starnav/install.sh --uninstall
 ```
 
-The installer is idempotent — run it again to update system packages or fix broken installs. Python package compilation may take 10-15 minutes on first install.
+The installer downloads the repo, installs all dependencies, configures uhttpd, and enables the service. It is idempotent — run it again to update. Python package compilation (grpcio) may take 10-30 minutes on first install.
 
 ## ArduPilot Parameter Setup
 
@@ -143,6 +139,7 @@ Access at `http://<router-ip>:8081`. Features:
 - **Aircraft card** — GPS position, EKF position, attitude, 3D position error
 - **EKF Health card** — active source (GPS/EXTPOS), position variance, quality gate status, position freshness, send rate, ACK acceptance rate
 - **Live log stream** via Server-Sent Events with color-coded levels
+- **Flight log manager** — browse, preview, and download CSV flight logs without SSH
 - **Service controls** — Start, Stop, Restart buttons
 - **Help panel** — inline documentation with parameter reference and troubleshooting
 - **Update Now** — one-click git pull with live progress streaming
@@ -151,9 +148,11 @@ Access at `http://<router-ip>:8081`. Features:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/cgi-bin/status.cgi` | GET | Process status + live position JSON |
+| `/cgi-bin/status-stream.cgi` | GET | SSE status push stream (replaces polling) |
+| `/cgi-bin/status.cgi` | GET | Process status + live position JSON (fallback) |
 | `/cgi-bin/api.cgi` | POST | Service control (`start`, `stop`, `restart`, `status`) |
 | `/cgi-bin/logs.cgi` | GET | SSE log stream |
+| `/cgi-bin/logs-csv.cgi` | GET | Flight log list, preview, and download (`?action=list\|download\|tail`) |
 | `/cgi-bin/version.cgi` | GET | Git version + update check |
 | `/cgi-bin/update.cgi` | GET | SSE update progress stream |
 
@@ -191,7 +190,7 @@ logread -f -e starnav
 # CSV flight logs
 ls -la /root/starlink_logs/
 
-# Status JSON (updated ~5 Hz)
+# Status JSON (updated ~2 Hz)
 cat /tmp/starnav_status.json | python3 -m json.tool
 
 # Version and update status
@@ -217,13 +216,15 @@ starnav.py                  Main daemon (position forwarding + EKF feedback)
 starnav.sh                  Startup wrapper (config, NTP, dish GPS control)
 starnav.init                OpenWRT procd service definition
 starnav.conf                Configuration file (INI format)
-install.sh                  Idempotent installer for OpenWRT
+install.sh                  Installer + uninstaller (wget one-liner supported)
 www/starnav/
   index.html                Web dashboard (single-page app)
   cgi-bin/
-    status.cgi              Process + position status API
+    status-stream.cgi       SSE status push stream (primary)
+    status.cgi              Process + position status API (fallback)
     api.cgi                 Service control API
     logs.cgi                SSE log streaming
+    logs-csv.cgi            Flight log list, preview, and download
     version.cgi             Git version + update check
     update.cgi              SSE update progress streaming
 starlink-grpc-tools/        Starlink gRPC client (submodule)

@@ -734,6 +734,42 @@
         <div id="logOutput"></div>
     </div>
 
+    <!-- ── Flight Logs ────────────────────────────────── -->
+    <div class="card log-card">
+        <div class="log-header">
+            <div class="card-title">Flight Logs (CSV)</div>
+            <div class="log-controls">
+                <button id="flightLogRefresh" class="btn btn-secondary" onclick="fetchFlightLogs()">Refresh</button>
+            </div>
+        </div>
+        <div style="max-height:220px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+                <thead>
+                    <tr style="border-bottom:1px solid var(--border)">
+                        <th style="text-align:left;padding:0.4rem 0.75rem;color:var(--text-secondary);font-weight:500">Date/Time</th>
+                        <th style="text-align:left;padding:0.4rem 0.5rem;color:var(--text-secondary);font-weight:500">Size</th>
+                        <th style="text-align:left;padding:0.4rem 0.5rem;color:var(--text-secondary);font-weight:500">Rows</th>
+                        <th style="text-align:right;padding:0.4rem 0.75rem;color:var(--text-secondary);font-weight:500">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="flightLogBody">
+                    <tr><td colspan="4" style="text-align:center;padding:1rem;color:var(--text-secondary)">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Log Preview Panel ─────────────────────────── -->
+    <div id="logPreviewPanel" style="display:none" class="card log-card">
+        <div class="log-header">
+            <div class="card-title">Preview: <span id="logPreviewTitle"></span></div>
+            <div class="log-controls">
+                <button class="btn btn-secondary" onclick="closeLogPreview()">Close</button>
+            </div>
+        </div>
+        <div id="logPreviewOutput" style="height:260px;overflow:auto;padding:0.5rem 0.75rem;font-family:'SF Mono','Fira Code','Consolas',monospace;font-size:0.72rem;line-height:1.5;background:#0d1117;white-space:pre;word-break:break-all;color:#c9d1d9"></div>
+    </div>
+
 </div><!-- /container -->
 
 <!-- ── Version footer ────────────────────────────────── -->
@@ -759,13 +795,15 @@
 
 // ── Config ──────────────────────────────────────────────
 const CFG = {
-    statusUrl:      'cgi-bin/status.cgi',
-    logsUrl:        'cgi-bin/logs.cgi',
-    apiUrl:         'cgi-bin/api.cgi',
-    versionUrl:     'cgi-bin/version.cgi',
-    updateUrl:      'cgi-bin/update.cgi',
-    statusInterval: 200,
-    maxLogLines:    500,
+    statusStreamUrl: 'cgi-bin/status-stream.cgi',
+    statusUrl:       'cgi-bin/status.cgi',
+    logsCsvUrl:      'cgi-bin/logs-csv.cgi',
+    logsUrl:         'cgi-bin/logs.cgi',
+    apiUrl:          'cgi-bin/api.cgi',
+    versionUrl:      'cgi-bin/version.cgi',
+    updateUrl:       'cgi-bin/update.cgi',
+    statusInterval:  2000,  // fallback polling rate (ms) if SSE fails
+    maxLogLines:     500,
 };
 
 // ── State ───────────────────────────────────────────────
@@ -1106,6 +1144,35 @@ async function fetchStatus() {
     } finally {
         _fetchInFlight = false;
     }
+}
+
+// ── Status stream (SSE) ─────────────────────────────────
+let _statusStream = null;
+let _statusFallbackTimer = null;
+
+function connectStatusStream() {
+    if (_statusStream) { _statusStream.close(); _statusStream = null; }
+    if (_statusFallbackTimer) { clearInterval(_statusFallbackTimer); _statusFallbackTimer = null; }
+
+    const es = new EventSource(CFG.statusStreamUrl);
+    _statusStream = es;
+
+    es.onmessage = (evt) => {
+        try {
+            const data = JSON.parse(evt.data);
+            state.lastStatus = data;
+            updateStatusUI(data);
+            if (data.position) updateMap(data.position);
+        } catch (_) {}
+    };
+
+    es.onerror = () => {
+        es.close();
+        _statusStream = null;
+        console.warn('Status stream lost, falling back to polling');
+        _statusFallbackTimer = setInterval(fetchStatus, CFG.statusInterval);
+        setTimeout(connectStatusStream, 10000);
+    };
 }
 
 // ── Status UI update ─────────────────────────────────────
@@ -1479,15 +1546,76 @@ function toggleHelp() {
     }
 }
 
+// ── Flight Logs ─────────────────────────────────────────
+async function fetchFlightLogs() {
+    const tbody = document.getElementById('flightLogBody');
+    const btn = document.getElementById('flightLogRefresh');
+    if (btn) btn.disabled = true;
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary)">Loading...</td></tr>';
+    try {
+        const resp = await fetch(CFG.logsCsvUrl + '?action=list');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const logs = await resp.json();
+        if (logs.error) throw new Error(logs.error);
+        if (!logs.length) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary)">No flight logs found</td></tr>';
+            return;
+        }
+        tbody.innerHTML = '';
+        logs.forEach(log => {
+            const tr = document.createElement('tr');
+            // Parse date from filename: StarNav_YYYY-MM-DD_HH-MM-SS.csv
+            const datePart = log.name.replace('StarNav_', '').replace('.csv', '').replace(/_/g, ' ');
+            tr.innerHTML = `
+                <td style="font-size:0.78rem">${datePart}</td>
+                <td style="font-size:0.78rem">${log.size_kb} KB</td>
+                <td style="font-size:0.78rem">${log.lines} rows</td>
+                <td style="text-align:right">
+                    <button class="btn btn-secondary" style="padding:0.2rem 0.5rem;font-size:0.72rem" onclick="previewLog('${log.name}')">Preview</button>
+                    <a class="btn btn-primary" style="padding:0.2rem 0.5rem;font-size:0.72rem;text-decoration:none" href="${CFG.logsCsvUrl}?action=download&file=${encodeURIComponent(log.name)}">Download</a>
+                </td>`;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--error)">${e.message}</td></tr>`;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function previewLog(filename) {
+    const panel = document.getElementById('logPreviewPanel');
+    const output = document.getElementById('logPreviewOutput');
+    const title = document.getElementById('logPreviewTitle');
+    title.textContent = filename;
+    output.textContent = 'Loading...';
+    panel.style.display = 'block';
+    try {
+        const resp = await fetch(CFG.logsCsvUrl + '?action=tail&file=' + encodeURIComponent(filename) + '&lines=50');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        const header = data.header || '';
+        const rows = data.rows || [];
+        output.textContent = header + '\n' + rows.join('\n');
+    } catch (e) {
+        output.textContent = 'Error: ' + e.message;
+    }
+}
+
+function closeLogPreview() {
+    document.getElementById('logPreviewPanel').style.display = 'none';
+}
+
 // ── Bootstrap ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     initMap();
     requestAnimationFrame(animateMap);
-    fetchStatus();
-    setInterval(fetchStatus, CFG.statusInterval);
+    connectStatusStream();
     connectLogStream();
     fetchVersion();
-    setInterval(fetchVersion, 300000); // re-check every 5 minutes
+    fetchFlightLogs();
+    setInterval(fetchVersion, 300000);
 });
 </script>
 </body>

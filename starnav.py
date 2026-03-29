@@ -269,8 +269,13 @@ else:
 # -------------------------
 # Cleanup handler
 # -------------------------
+_csv_file = None
+_csv_writer = None
+
 def cleanup(signum=None, frame=None):
     print("Shutting down...")
+    if _csv_file:
+        _csv_file.close()
     starlink_context.close()
     sys.exit(0)
 
@@ -281,30 +286,31 @@ signal.signal(signal.SIGINT, cleanup)
 # CSV setup
 # -------------------------
 if CSV_ENABLED:
-    with open(CSV_FILE, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "Date",
-            "Time",
-            "GPS Lat",
-            "GPS Lon",
-            "GPS Alt (m)",
-            "EKF Lat",
-            "EKF Lon",
-            "EKF Alt (m)",
-            "Starlink Lat",
-            "Starlink Lon",
-            "Starlink Alt (m)",
-            "Roll (deg)",
-            "Pitch (deg)",
-            "Yaw (deg)",
-            "3D Accuracy (m)",
-            "Starlink Uncertainty (m, 99%)",
-            "Correction",
-            "Quality OK",
-            "Position Stale",
-            "EKF Source",
-        ])
+    _csv_file = open(CSV_FILE, "w", newline="")
+    _csv_writer = csv.writer(_csv_file)
+    _csv_writer.writerow([
+        "Date",
+        "Time",
+        "GPS Lat",
+        "GPS Lon",
+        "GPS Alt (m)",
+        "EKF Lat",
+        "EKF Lon",
+        "EKF Alt (m)",
+        "Starlink Lat",
+        "Starlink Lon",
+        "Starlink Alt (m)",
+        "Roll (deg)",
+        "Pitch (deg)",
+        "Yaw (deg)",
+        "3D Accuracy (m)",
+        "Starlink Uncertainty (m, 99%)",
+        "Correction",
+        "Quality OK",
+        "Position Stale",
+        "EKF Source",
+    ])
+    _csv_file.flush()
     print(f"Logging to {CSV_FILE}")
     enforce_log_limit()
 else:
@@ -315,6 +321,8 @@ _last_log_cleanup = 0
 _last_send_time = 0.0
 _last_send_epoch = 0.0
 _last_heartbeat_time = 0.0
+_last_status_write = 0.0
+_last_csv_flush = 0.0
 
 # -------------------------
 # Main loop
@@ -352,6 +360,15 @@ try:
     accuracy = float("nan")
     correction = "N"
     timestamp = datetime.now(UTC)
+
+    # Defaults for variables used outside the try block
+    quality_ok = False
+    position_stale = True
+    position_age = 0.0
+    send_interval = SEND_RATE_DEGRADED
+    sending = False
+    in_air = False
+    ack_accept_rate = 0.0
 
     while True:
         try:
@@ -472,19 +489,21 @@ try:
             )
 
             # ---- Log to CSV ----
-            if CSV_ENABLED:
-                with open(CSV_FILE, "a", newline="") as f:
-                    writer = csv.writer(f)
-                    writer.writerow([
-                        timestamp.strftime("%Y-%m-%d"),
-                        timestamp.strftime("%H:%M:%S.%f")[:-3],
-                        gps_lat, gps_lon, gps_alt,
-                        ekf_lat, ekf_lon, ekf_alt,
-                        star_lat, star_lon, star_alt,
-                        roll, pitch, yaw,
-                        accuracy, star_unc_99, correction,
-                        quality_ok, position_stale, ekf_source,
-                    ])
+            if CSV_ENABLED and _csv_writer:
+                _csv_writer.writerow([
+                    timestamp.strftime("%Y-%m-%d"),
+                    timestamp.strftime("%H:%M:%S.%f")[:-3],
+                    gps_lat, gps_lon, gps_alt,
+                    ekf_lat, ekf_lon, ekf_alt,
+                    star_lat, star_lon, star_alt,
+                    roll, pitch, yaw,
+                    accuracy, star_unc_99, correction,
+                    quality_ok, position_stale, ekf_source,
+                ])
+                # Flush every ~2s to balance data safety vs syscall overhead
+                if now_monotonic - _last_csv_flush > 2:
+                    _csv_file.flush()
+                    _last_csv_flush = now_monotonic
                 if now_monotonic - _last_log_cleanup > 60:
                     _last_log_cleanup = now_monotonic
                     enforce_log_limit()
@@ -551,34 +570,38 @@ try:
 
         in_air = is_armed and relative_alt_m > 2.0
 
-        # Write status file for web UI (every iteration, ~5 Hz)
-        write_status_file({
-            "ts":              timestamp,
-            "star_lat":        star_lat,        "star_lon":        star_lon,
-            "star_alt":        star_alt,
-            "star_unc_1sigma": star_unc_1sigma,  "star_unc_99":    star_unc_99,
-            "gps_lat":         gps_lat,          "gps_lon":        gps_lon,
-            "gps_alt":         gps_alt,
-            "ekf_lat":         ekf_lat,          "ekf_lon":        ekf_lon,
-            "ekf_alt":         ekf_alt,
-            "ekf_const_pos":   ekf_const_pos,    "ekf_pos_var":    ekf_pos_var,
-            "roll":            roll,              "pitch":          pitch,
-            "yaw":             yaw,
-            "accuracy":        accuracy,
-            "sending":         sending,
-            "send_interval":   send_interval,
-            "last_send_epoch": _last_send_epoch,
-            "correction":      correction,
-            "last_ack_result": last_ack_result,
-            "is_armed":        is_armed,
-            "in_air":          in_air,
-            "quality_ok":      quality_ok,
-            "position_stale":  position_stale,
-            "position_age":    position_age,
-            "ekf_source":      ekf_source,
-            "ack_accept_rate": ack_accept_rate,
-        })
+        # Write status file for web UI (throttled to 2 Hz for RVR link budget)
+        if now_monotonic - _last_status_write >= 0.5:
+            _last_status_write = now_monotonic
+            write_status_file({
+                "ts":              timestamp,
+                "star_lat":        star_lat,        "star_lon":        star_lon,
+                "star_alt":        star_alt,
+                "star_unc_1sigma": star_unc_1sigma,  "star_unc_99":    star_unc_99,
+                "gps_lat":         gps_lat,          "gps_lon":        gps_lon,
+                "gps_alt":         gps_alt,
+                "ekf_lat":         ekf_lat,          "ekf_lon":        ekf_lon,
+                "ekf_alt":         ekf_alt,
+                "ekf_const_pos":   ekf_const_pos,    "ekf_pos_var":    ekf_pos_var,
+                "roll":            roll,              "pitch":          pitch,
+                "yaw":             yaw,
+                "accuracy":        accuracy,
+                "sending":         sending,
+                "send_interval":   send_interval,
+                "last_send_epoch": _last_send_epoch,
+                "correction":      correction,
+                "last_ack_result": last_ack_result,
+                "is_armed":        is_armed,
+                "in_air":          in_air,
+                "quality_ok":      quality_ok,
+                "position_stale":  position_stale,
+                "position_age":    position_age,
+                "ekf_source":      ekf_source,
+                "ack_accept_rate": ack_accept_rate,
+            })
 
         time.sleep(0.2)
 finally:
+    if _csv_file:
+        _csv_file.close()
     starlink_context.close()
