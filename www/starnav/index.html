@@ -449,6 +449,104 @@
         #helpPanel td code {
             font-size: 0.75rem;
         }
+
+        /* ── Settings panel ─────────────────────────────── */
+        #settingsPanel {
+            display: none;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 1rem 1rem;
+        }
+
+        #settingsPanel.visible { display: block; }
+
+        #settingsPanel .settings-inner {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.5rem;
+        }
+
+        #settingsPanel .setting-group {
+            margin-bottom: 1rem;
+        }
+
+        #settingsPanel .setting-group-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        #settingsPanel .setting-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid rgba(55,65,81,.5);
+            font-size: 0.85rem;
+            gap: 1rem;
+        }
+
+        #settingsPanel .setting-row:last-child { border-bottom: none; }
+
+        #settingsPanel .setting-label {
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        #settingsPanel input,
+        #settingsPanel select {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 0.3rem 0.5rem;
+            font-size: 0.82rem;
+            font-family: inherit;
+            min-width: 0;
+            width: 180px;
+            text-align: right;
+        }
+
+        #settingsPanel input:focus,
+        #settingsPanel select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        #settingsPanel input.invalid {
+            border-color: var(--error);
+        }
+
+        #settingsPanel input[type="number"] { width: 100px; }
+
+        #settingsPanel details {
+            margin-top: 0.5rem;
+        }
+
+        #settingsPanel summary {
+            cursor: pointer;
+            color: var(--accent);
+            font-size: 0.82rem;
+            font-weight: 500;
+            padding: 0.4rem 0;
+        }
+
+        #settingsPanel .settings-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            justify-content: flex-end;
+        }
+
+        #settingsPanel .settings-status {
+            font-size: 0.78rem;
+            margin-top: 0.5rem;
+            text-align: right;
+        }
     </style>
 </head>
 <body>
@@ -467,6 +565,7 @@
             <button id="btn-start"    class="btn btn-primary"   onclick="executeCommand('start')">Start</button>
             <button id="btn-stop"     class="btn btn-danger"    onclick="executeCommand('stop')">Stop</button>
             <button id="btn-restart"  class="btn btn-secondary" onclick="executeCommand('restart')">Restart</button>
+            <button id="btn-settings" class="btn btn-secondary" onclick="toggleSettings()">Settings</button>
             <button id="btn-help"     class="btn btn-secondary" onclick="toggleHelp()">Help</button>
         </div>
     </div>
@@ -525,6 +624,107 @@
             <li><strong>Log stream disconnects frequently:</strong> This can happen if the companion CPU is overloaded or the network is intermittent. The UI will auto-reconnect.</li>
             <li><strong>Update fails:</strong> SSH into the companion and run <code>cd /opt/starnav && bash install.sh</code> manually to see detailed errors.</li>
         </ul>
+    </div>
+</div>
+
+<!-- ── Settings Panel (toggled via Settings button) ──────── -->
+<div id="settingsPanel">
+    <div class="settings-inner">
+        <div class="setting-group">
+            <div class="setting-group-title">Aircraft Connection</div>
+            <div class="setting-row">
+                <span class="setting-label">Target System ID</span>
+                <input type="number" id="cfg-target_system" min="1" max="255" step="1">
+            </div>
+            <div class="setting-row">
+                <span class="setting-label">MAVLink Connection</span>
+                <input type="text" id="cfg-connection" style="width:220px">
+            </div>
+            <div class="setting-row">
+                <span class="setting-label">Dish GPS Mode</span>
+                <select id="cfg-gps_mode">
+                    <option value="disable">disable</option>
+                    <option value="enable">enable</option>
+                    <option value="auto">auto</option>
+                </select>
+            </div>
+        </div>
+
+        <details>
+            <summary>Advanced Settings</summary>
+
+            <div class="setting-group">
+                <div class="setting-group-title">MAVLink IDs</div>
+                <div class="setting-row">
+                    <span class="setting-label">Target Component</span>
+                    <input type="number" id="cfg-target_component" min="1" max="255" step="1">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Source System</span>
+                    <input type="number" id="cfg-source_system" min="1" max="255" step="1">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Source Component</span>
+                    <input type="number" id="cfg-source_component" min="1" max="255" step="1">
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <div class="setting-group-title">Thresholds</div>
+                <div class="setting-row">
+                    <span class="setting-label">Uncertainty Limit (m, 99%)</span>
+                    <input type="number" id="cfg-uncertainty_limit" min="0.1" step="0.1">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Min Stable Time (s)</span>
+                    <input type="number" id="cfg-min_stable_time" min="0" step="0.5">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Accuracy Jump Threshold (m)</span>
+                    <input type="number" id="cfg-accuracy_jump_threshold" min="0.1" step="0.1">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Staleness Timeout (s)</span>
+                    <input type="number" id="cfg-staleness_timeout" min="0" step="0.5">
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <div class="setting-group-title">Send Rates</div>
+                <div class="setting-row">
+                    <span class="setting-label">Active (s)</span>
+                    <input type="number" id="cfg-send_rate_active" min="0.1" step="0.1">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Passive (s)</span>
+                    <input type="number" id="cfg-send_rate_passive" min="0.1" step="0.1">
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Degraded (s)</span>
+                    <input type="number" id="cfg-send_rate_degraded" min="0.1" step="0.1">
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <div class="setting-group-title">Logging</div>
+                <div class="setting-row">
+                    <span class="setting-label">CSV Logging</span>
+                    <select id="cfg-csv_enabled">
+                        <option value="true">Enabled</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">Max Log Size (MB)</span>
+                    <input type="number" id="cfg-max_log_size_mb" min="1" step="1">
+                </div>
+            </div>
+        </details>
+
+        <div class="settings-actions">
+            <button id="settingsSaveBtn" class="btn btn-primary" onclick="saveSettings()" disabled>Save &amp; Restart</button>
+        </div>
+        <div id="settingsStatus" class="settings-status"></div>
     </div>
 </div>
 
@@ -795,6 +995,7 @@
 
 // ── Config ──────────────────────────────────────────────
 const CFG = {
+    configUrl:       'cgi-bin/config.cgi',
     statusStreamUrl: 'cgi-bin/status-stream.cgi',
     statusUrl:       'cgi-bin/status.cgi',
     logsCsvUrl:      'cgi-bin/logs-csv.cgi',
@@ -1543,6 +1744,135 @@ function toggleHelp() {
         btn.className = 'btn btn-primary';
     } else {
         btn.className = 'btn btn-secondary';
+    }
+}
+
+// ── Settings panel ───────────────────────────────────────
+let _settingsLoaded = {};  // original values for dirty tracking
+
+// Map of setting id → {section, key}
+const SETTINGS_MAP = {
+    'cfg-target_system':          { s: 'mavlink',     k: 'target_system' },
+    'cfg-target_component':       { s: 'mavlink',     k: 'target_component' },
+    'cfg-source_system':          { s: 'mavlink',     k: 'source_system' },
+    'cfg-source_component':       { s: 'mavlink',     k: 'source_component' },
+    'cfg-connection':             { s: 'mavlink',     k: 'connection' },
+    'cfg-gps_mode':               { s: 'starlink',    k: 'gps_mode' },
+    'cfg-uncertainty_limit':      { s: 'thresholds',  k: 'uncertainty_limit' },
+    'cfg-min_stable_time':        { s: 'thresholds',  k: 'min_stable_time' },
+    'cfg-accuracy_jump_threshold':{ s: 'thresholds',  k: 'accuracy_jump_threshold' },
+    'cfg-staleness_timeout':      { s: 'thresholds',  k: 'staleness_timeout' },
+    'cfg-send_rate_active':       { s: 'rates',       k: 'send_rate_active' },
+    'cfg-send_rate_passive':      { s: 'rates',       k: 'send_rate_passive' },
+    'cfg-send_rate_degraded':     { s: 'rates',       k: 'send_rate_degraded' },
+    'cfg-csv_enabled':            { s: 'logging',     k: 'csv_enabled' },
+    'cfg-max_log_size_mb':        { s: 'logging',     k: 'max_log_size_mb' },
+};
+
+function toggleSettings() {
+    const panel = document.getElementById('settingsPanel');
+    const btn = document.getElementById('btn-settings');
+    panel.classList.toggle('visible');
+    if (panel.classList.contains('visible')) {
+        btn.className = 'btn btn-primary';
+        loadSettings();
+    } else {
+        btn.className = 'btn btn-secondary';
+    }
+}
+
+async function loadSettings() {
+    const statusEl = document.getElementById('settingsStatus');
+    statusEl.textContent = 'Loading...';
+    statusEl.style.color = 'var(--text-secondary)';
+    try {
+        const resp = await fetch(CFG.configUrl + '?action=read');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const cfg = await resp.json();
+        if (cfg.error) throw new Error(cfg.error);
+
+        // Populate fields
+        for (const [id, {s, k}] of Object.entries(SETTINGS_MAP)) {
+            const el = document.getElementById(id);
+            if (!el || !cfg[s]) continue;
+            const val = cfg[s][k];
+            if (val !== undefined) {
+                el.value = val;
+                _settingsLoaded[id] = String(val);
+            }
+        }
+        statusEl.textContent = '';
+        document.getElementById('settingsSaveBtn').disabled = true;
+
+        // Listen for changes
+        for (const id of Object.keys(SETTINGS_MAP)) {
+            const el = document.getElementById(id);
+            if (el) el.oninput = el.onchange = checkSettingsDirty;
+        }
+    } catch (e) {
+        statusEl.textContent = 'Failed to load: ' + e.message;
+        statusEl.style.color = 'var(--error)';
+    }
+}
+
+function checkSettingsDirty() {
+    let dirty = false;
+    for (const id of Object.keys(SETTINGS_MAP)) {
+        const el = document.getElementById(id);
+        if (el && String(el.value) !== _settingsLoaded[id]) {
+            dirty = true;
+            break;
+        }
+    }
+    document.getElementById('settingsSaveBtn').disabled = !dirty;
+}
+
+async function saveSettings() {
+    const btn = document.getElementById('settingsSaveBtn');
+    const statusEl = document.getElementById('settingsStatus');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    statusEl.textContent = '';
+
+    // Build update payload grouped by section
+    const payload = {};
+    for (const [id, {s, k}] of Object.entries(SETTINGS_MAP)) {
+        const el = document.getElementById(id);
+        if (!el || String(el.value) === _settingsLoaded[id]) continue;
+        if (!payload[s]) payload[s] = {};
+        payload[s][k] = el.value;
+    }
+
+    try {
+        const resp = await fetch(CFG.configUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || 'Save failed');
+
+        statusEl.textContent = 'Saved. Restarting service...';
+        statusEl.style.color = 'var(--success)';
+
+        // Update loaded values
+        for (const id of Object.keys(SETTINGS_MAP)) {
+            const el = document.getElementById(id);
+            if (el) _settingsLoaded[id] = String(el.value);
+        }
+
+        appendLog({ level: 'sys', source: 'settings', message: 'Config saved, restarting...' });
+
+        // Restart service to apply
+        await executeCommand('restart');
+
+        statusEl.textContent = 'Saved and restarted.';
+    } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.style.color = 'var(--error)';
+    } finally {
+        btn.textContent = 'Save & Restart';
+        btn.disabled = true;
     }
 }
 
