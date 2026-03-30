@@ -131,7 +131,7 @@ export default function MapView({ position }: MapViewProps) {
   }
 
   return (
-    <div className="bg-bg-card overflow-hidden flex flex-col h-full min-h-[400px]">
+    <div className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col h-full min-h-[400px]">
       {/* Map header with auto-pan */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-bg-secondary">
         <span className="text-xs uppercase tracking-wider text-text-secondary font-semibold">Satellite Map</span>

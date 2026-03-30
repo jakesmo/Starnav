@@ -20,7 +20,7 @@ function LoadingFallback() {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<AppTab>("dashboard");
+  const [activeTab, setActiveTab] = useState<AppTab>("map");
   const { status, isConnected } = useStatus();
 
   return (
@@ -31,38 +31,34 @@ export default function App() {
         connected={isConnected}
       />
 
-      {/* Map tab: full width, no max-width constraint, fills viewport */}
-      {activeTab === "map" && (
-        <div className="h-[calc(100vh-6rem)]">
-          <MapView position={status?.position ?? null} />
-        </div>
-      )}
+      <main className="max-w-[1400px] mx-auto px-4 py-4 flex flex-col gap-4">
+        {activeTab === "map" && (
+          <div className="h-[calc(100vh-8rem)]">
+            <MapView position={status?.position ?? null} />
+          </div>
+        )}
 
-      {/* All other tabs: constrained width */}
-      {activeTab !== "map" && (
-        <main className="max-w-[1400px] mx-auto px-4 py-4 flex flex-col gap-4">
-          {activeTab === "dashboard" && (
-            <>
-              <StartupBanner position={status?.position ?? null} />
-              <StatusCards status={status} />
-              <LogViewer />
-              <FlightLogs />
-            </>
-          )}
+        {activeTab === "dashboard" && (
+          <>
+            <StartupBanner position={status?.position ?? null} />
+            <StatusCards status={status} />
+            <LogViewer />
+            <FlightLogs />
+          </>
+        )}
 
-          {activeTab === "settings" && (
-            <Suspense fallback={<LoadingFallback />}>
-              <SettingsPage />
-            </Suspense>
-          )}
+        {activeTab === "settings" && (
+          <Suspense fallback={<LoadingFallback />}>
+            <SettingsPage />
+          </Suspense>
+        )}
 
-          {activeTab === "help" && (
-            <Suspense fallback={<LoadingFallback />}>
-              <HelpPage />
-            </Suspense>
-          )}
-        </main>
-      )}
+        {activeTab === "help" && (
+          <Suspense fallback={<LoadingFallback />}>
+            <HelpPage />
+          </Suspense>
+        )}
+      </main>
     </div>
   );
 }
