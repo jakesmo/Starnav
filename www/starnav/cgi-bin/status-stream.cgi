@@ -68,5 +68,5 @@ while true; do
         LAST_KEEPALIVE=$NOW
     fi
 
-    sleep 0.5
+    sleep 1
 done

@@ -153,6 +153,25 @@ def distance_3d(lat1, lon1, alt1, lat2, lon2, alt2):
 STATUS_FILE = "/tmp/starnav_status.json"
 
 
+def write_startup_status(phase, detail=""):
+    """Write a minimal status file during startup so the web UI can show progress."""
+    obj = {
+        "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.") +
+                     datetime.now(UTC).strftime("%f")[:3],
+        "startup_phase": phase,
+        "startup_detail": detail,
+        "dish_address": DISH_ADDRESS,
+        "mavlink_connection": MAVLINK_CONNECTION,
+    }
+    try:
+        tmp = STATUS_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(obj, f)
+        os.replace(tmp, STATUS_FILE)
+    except OSError:
+        pass
+
+
 def write_status_file(data):
     """Atomically write current position/state to JSON for the web UI."""
     def sf(v, d=7):
@@ -163,6 +182,7 @@ def write_status_file(data):
 
     obj = {
         "timestamp": data["ts"].strftime("%Y-%m-%dT%H:%M:%S.") + data["ts"].strftime("%f")[:3],
+        "startup_phase": None,
         "dish_address": DISH_ADDRESS,
         "mavlink_connection": MAVLINK_CONNECTION,
         "uncertainty_limit": UNCERTAINTY_LIMIT,
@@ -214,6 +234,7 @@ def write_status_file(data):
 # -------------------------
 # Starlink gRPC connection
 # -------------------------
+write_startup_status("connecting", f"Connecting to Starlink dish at {DISH_ADDRESS}")
 starlink_context = starlink_grpc.ChannelContext(target=DISH_ADDRESS)
 print(f"Starlink dish target: {DISH_ADDRESS}")
 
@@ -230,7 +251,11 @@ print("Waiting for autopilot heartbeat...")
 
 # Send heartbeats to register with the Cube's UDP server.
 # The server won't send anything back until it receives a packet from us.
+_hb_wait_start = time.monotonic()
 while True:
+    _hb_elapsed = int(time.monotonic() - _hb_wait_start)
+    write_startup_status("waiting_heartbeat",
+        f"Waiting for heartbeat from system {TARGET_SYS} on {MAVLINK_CONNECTION} ({_hb_elapsed}s)")
     mav.mav.heartbeat_send(
         mavutil.mavlink.MAV_TYPE_ONBOARD_CONTROLLER,
         mavutil.mavlink.MAV_AUTOPILOT_INVALID,
