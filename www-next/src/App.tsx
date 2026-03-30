@@ -31,33 +31,38 @@ export default function App() {
         connected={isConnected}
       />
 
-      <main className="max-w-[1400px] mx-auto px-4 py-4 flex flex-col gap-4">
-        {activeTab === "dashboard" && (
-          <>
-            <StartupBanner position={status?.position ?? null} />
+      {/* Map tab: full width, no max-width constraint, fills viewport */}
+      {activeTab === "map" && (
+        <div className="h-[calc(100vh-6rem)]">
+          <MapView position={status?.position ?? null} />
+        </div>
+      )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4 items-stretch">
+      {/* All other tabs: constrained width */}
+      {activeTab !== "map" && (
+        <main className="max-w-[1400px] mx-auto px-4 py-4 flex flex-col gap-4">
+          {activeTab === "dashboard" && (
+            <>
+              <StartupBanner position={status?.position ?? null} />
               <StatusCards status={status} />
-              <MapView position={status?.position ?? null} />
-            </div>
+              <LogViewer />
+              <FlightLogs />
+            </>
+          )}
 
-            <LogViewer />
-            <FlightLogs />
-          </>
-        )}
+          {activeTab === "settings" && (
+            <Suspense fallback={<LoadingFallback />}>
+              <SettingsPage />
+            </Suspense>
+          )}
 
-        {activeTab === "settings" && (
-          <Suspense fallback={<LoadingFallback />}>
-            <SettingsPage />
-          </Suspense>
-        )}
-
-        {activeTab === "help" && (
-          <Suspense fallback={<LoadingFallback />}>
-            <HelpPage />
-          </Suspense>
-        )}
-      </main>
+          {activeTab === "help" && (
+            <Suspense fallback={<LoadingFallback />}>
+              <HelpPage />
+            </Suspense>
+          )}
+        </main>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { executeCommand } from "../api/client";
 import Button from "./ui/Button";
 import { cn } from "../lib/utils";
 
-export type AppTab = "dashboard" | "settings" | "help";
+export type AppTab = "dashboard" | "map" | "settings" | "help";
 
 interface HeaderProps {
   activeTab: AppTab;
@@ -14,6 +14,7 @@ interface HeaderProps {
 
 const tabs: { id: AppTab; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "map", label: "Map" },
   { id: "settings", label: "Settings" },
   { id: "help", label: "Help" },
 ];

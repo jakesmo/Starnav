@@ -41,7 +41,7 @@ export default function StatusCards({ status }: StatusCardsProps) {
   const processRunning = status?.process_running ?? false;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Process Card */}
       <Card title="Process">
         <StatusRow
