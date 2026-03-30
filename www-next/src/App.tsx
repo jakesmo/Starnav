@@ -21,7 +21,7 @@ function LoadingFallback() {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("map");
-  const { status, isConnected } = useStatus();
+  const { status, isConnected, receivedAt } = useStatus();
 
   return (
     <div className="min-h-screen bg-bg-primary">
@@ -41,7 +41,7 @@ export default function App() {
         {activeTab === "dashboard" && (
           <>
             <StartupBanner position={status?.position ?? null} />
-            <StatusCards status={status} />
+            <StatusCards status={status} receivedAt={receivedAt} />
             <LogViewer />
             <FlightLogs />
           </>

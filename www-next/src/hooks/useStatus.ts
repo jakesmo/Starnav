@@ -1,6 +1,6 @@
 // SSE-first status hook with polling fallback
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchStatus } from "../api/client";
 import type { StatusResponse } from "../api/types";
@@ -13,6 +13,16 @@ export function useStatus() {
   const queryClient = useQueryClient();
   const [sseConnected, setSseConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  // Track when we last received data (for client-side age calculation)
+  const [receivedAt, setReceivedAt] = useState<number>(0);
+
+  const onData = useCallback(
+    (data: StatusResponse) => {
+      queryClient.setQueryData(STATUS_KEY, data);
+      setReceivedAt(Date.now());
+    },
+    [queryClient],
+  );
 
   // Try SSE connection
   useEffect(() => {
@@ -24,7 +34,7 @@ export function useStatus() {
     es.onmessage = (event) => {
       try {
         const data: StatusResponse = JSON.parse(event.data);
-        queryClient.setQueryData(STATUS_KEY, data);
+        onData(data);
       } catch {
         // ignore malformed events
       }
@@ -41,12 +51,16 @@ export function useStatus() {
       eventSourceRef.current = null;
       setSseConnected(false);
     };
-  }, [queryClient]);
+  }, [onData]);
 
   // Polling fallback — only active when SSE is down
   const { data } = useQuery<StatusResponse>({
     queryKey: STATUS_KEY,
-    queryFn: fetchStatus,
+    queryFn: async () => {
+      const result = await fetchStatus();
+      setReceivedAt(Date.now());
+      return result;
+    },
     refetchInterval: sseConnected ? false : POLL_INTERVAL,
     refetchIntervalInBackground: true,
   });
@@ -54,5 +68,6 @@ export function useStatus() {
   return {
     status: data ?? null,
     isConnected: sseConnected || !!data,
+    receivedAt,
   };
 }

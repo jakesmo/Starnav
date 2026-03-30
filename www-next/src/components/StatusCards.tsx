@@ -3,9 +3,11 @@ import Card from "./ui/Card";
 import Badge from "./ui/Badge";
 import { cn } from "../lib/utils";
 import { fmtCoord, fmtAlt, fmtDeg, fmtM } from "../lib/utils";
+import { useTick } from "../hooks/useTick";
 
 interface StatusCardsProps {
   status: StatusResponse | null;
+  receivedAt: number;
 }
 
 function StatusRow({
@@ -27,18 +29,49 @@ function StatusRow({
   );
 }
 
-function sendCountdown(pos: StatusResponse["position"]): string {
-  if (!pos.sending || pos.last_send_epoch == null || pos.send_interval == null || pos.send_interval === 0) return "--";
-  const elapsed = Date.now() / 1000 - pos.last_send_epoch;
-  const remaining = Math.max(0, pos.send_interval - elapsed);
-  return `${remaining.toFixed(1)}s`;
-}
+export default function StatusCards({ status, receivedAt }: StatusCardsProps) {
+  // Re-render every 200ms for smooth time displays
+  useTick(200);
 
-export default function StatusCards({ status }: StatusCardsProps) {
   const pos = status?.position ?? null;
-
-  // Process Card
   const processRunning = status?.process_running ?? false;
+  const now = Date.now() / 1000;
+
+  // Client-side data age: server age + time since we received the update
+  const dataAge =
+    status && receivedAt
+      ? status.data_age_seconds + (Date.now() - receivedAt) / 1000
+      : null;
+
+  // Send countdown: computed from wall-clock time each render
+  let sendCountdown = "--";
+  if (
+    pos?.sending &&
+    pos.last_send_epoch != null &&
+    pos.send_interval != null &&
+    pos.send_interval > 0
+  ) {
+    const elapsed = now - pos.last_send_epoch;
+    const remaining = Math.max(0, pos.send_interval - (elapsed % pos.send_interval));
+    sendCountdown = `${remaining.toFixed(1)}s`;
+  }
+
+  // Position freshness: server age + client drift
+  let freshness = "--";
+  let freshnessClass: string | undefined;
+  if (pos?.startup_phase) {
+    // During startup, don't show
+  } else if (pos?.position_stale) {
+    const age =
+      pos.position_age != null && receivedAt
+        ? pos.position_age + (Date.now() - receivedAt) / 1000
+        : pos.position_age;
+    freshness = age != null ? `${age.toFixed(1)}s STALE` : "STALE";
+    freshnessClass = "text-error";
+  } else if (pos?.position_age != null && receivedAt) {
+    const age = pos.position_age + (Date.now() - receivedAt) / 1000;
+    freshness = `${age.toFixed(1)}s`;
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -52,8 +85,13 @@ export default function StatusCards({ status }: StatusCardsProps) {
         <StatusRow label="PID" value={status?.pid?.toString() ?? "--"} />
         <StatusRow
           label="Last data"
-          value={
-            status ? `${status.data_age_seconds.toFixed(1)}s ago` : "--"
+          value={dataAge != null ? `${dataAge.toFixed(1)}s ago` : "--"}
+          className={
+            dataAge != null
+              ? dataAge > 5
+                ? "text-warning"
+                : "text-success"
+              : undefined
           }
         />
         <StatusRow
@@ -93,10 +131,7 @@ export default function StatusCards({ status }: StatusCardsProps) {
               : undefined
           }
         />
-        <StatusRow
-          label="Send countdown"
-          value={pos ? sendCountdown(pos) : "--"}
-        />
+        <StatusRow label="Send countdown" value={sendCountdown} />
         <StatusRow
           label="Correction"
           value={pos?.correction ?? "--"}
@@ -159,14 +194,8 @@ export default function StatusCards({ status }: StatusCardsProps) {
         />
         <StatusRow
           label="Position freshness"
-          value={
-            pos?.position_stale
-              ? "STALE"
-              : pos?.position_age != null
-                ? `${pos.position_age.toFixed(1)}s`
-                : "--"
-          }
-          className={pos?.position_stale ? "text-error" : undefined}
+          value={freshness}
+          className={freshnessClass}
         />
         <StatusRow
           label="Send rate"
