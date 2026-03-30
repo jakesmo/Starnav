@@ -212,6 +212,30 @@ export default function MapView({ position }: MapViewProps) {
           />
         ))}
       </MapContainer>
+
+      {/* Map legend */}
+      <div className="flex flex-wrap gap-4 px-3 py-2 border-t border-border text-xs text-text-secondary">
+        <div className="flex items-center gap-1.5">
+          <svg viewBox="0 0 32 32" width="14" height="14" className="shrink-0"><polygon points="16,2 26,28 16,22 6,28" fill="#e03030" stroke="#000" strokeWidth="1.5"/></svg>
+          <span>Aircraft (Starlink live)</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-accent shrink-0" />
+          <span>Starlink position</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 bg-warning shrink-0" style={{ transform: "rotate(45deg)" }} />
+          <span>Aircraft GPS</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3.5 h-3.5 rounded border-2 border-success opacity-60 shrink-0" />
+          <span>Uncertainty circle (green = sending)</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-5 h-0.5 rounded-sm shrink-0" style={{ background: "linear-gradient(to right, rgba(0,255,255,0.2), #00ffff)" }} />
+          <span>60s position trail</span>
+        </div>
+      </div>
     </div>
   );
 }
