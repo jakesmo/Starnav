@@ -28,7 +28,7 @@ function StatusRow({
 }
 
 function sendCountdown(pos: StatusResponse["position"]): string {
-  if (!pos.sending || !pos.last_send_epoch || !pos.send_interval) return "--";
+  if (!pos.sending || pos.last_send_epoch == null || pos.send_interval == null || pos.send_interval === 0) return "--";
   const elapsed = Date.now() / 1000 - pos.last_send_epoch;
   const remaining = Math.max(0, pos.send_interval - elapsed);
   return `${remaining.toFixed(1)}s`;

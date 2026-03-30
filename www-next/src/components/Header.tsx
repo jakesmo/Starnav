@@ -58,7 +58,7 @@ export default function Header({
             <span className="font-semibold text-sm text-text-primary">
               StarNav Monitor
             </span>
-            <span className="text-[0.65rem] text-text-secondary hidden sm:inline">
+            <span className="text-[0.65rem] text-text-secondary hidden md:inline">
               Starlink PNT
             </span>
           </div>
@@ -78,7 +78,7 @@ export default function Header({
               )}
             >
               <Icon size={15} />
-              <span className="hidden sm:inline">{label}</span>
+              <span className="hidden md:inline">{label}</span>
             </button>
           ))}
         </nav>
@@ -92,7 +92,7 @@ export default function Header({
             disabled={loading !== null}
           >
             <Play size={13} />
-            <span className="hidden sm:inline">Start</span>
+            <span className="hidden md:inline">Start</span>
           </Button>
           <Button
             variant="danger"
@@ -101,7 +101,7 @@ export default function Header({
             disabled={loading !== null}
           >
             <Square size={13} />
-            <span className="hidden sm:inline">Stop</span>
+            <span className="hidden md:inline">Stop</span>
           </Button>
           <Button
             variant="secondary"
@@ -110,7 +110,7 @@ export default function Header({
             disabled={loading !== null}
           >
             <RotateCw size={13} />
-            <span className="hidden sm:inline">Restart</span>
+            <span className="hidden md:inline">Restart</span>
           </Button>
         </div>
       </div>

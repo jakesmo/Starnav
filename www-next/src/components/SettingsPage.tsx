@@ -116,8 +116,23 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const data = await readConfig();
-      setConfig(data);
-      setOriginal(data);
+      // Ensure all sections exist with defaults
+      const defaults: ConfigData = {
+        starlink: { dish_address: '192.168.100.1:9200', gps_mode: 'disable' },
+        mavlink: { connection: 'udpin:0.0.0.0:14552', target_system: 2, target_component: 1, source_system: 242, source_component: 192 },
+        thresholds: { uncertainty_limit: 200, min_stable_time: 3, accuracy_jump_threshold: 1.5, staleness_timeout: 3 },
+        rates: { send_rate_active: 0.5, send_rate_passive: 1.0, send_rate_degraded: 2.0 },
+        logging: { csv_enabled: true, max_log_size_mb: 100 },
+      };
+      const safe: ConfigData = {
+        starlink: { ...defaults.starlink, ...data.starlink },
+        mavlink: { ...defaults.mavlink, ...data.mavlink },
+        thresholds: { ...defaults.thresholds, ...data.thresholds },
+        rates: { ...defaults.rates, ...data.rates },
+        logging: { ...defaults.logging, ...data.logging },
+      };
+      setConfig(safe);
+      setOriginal(safe);
     } catch (err) {
       toast.error(
         `Failed to load config: ${err instanceof Error ? err.message : "Unknown error"}`,
@@ -284,10 +299,26 @@ export default function SettingsPage() {
                   step={0.5}
                 />
               </FieldRow>
-              <FieldRow label="Stale Timeout (s)">
+              <FieldRow label="Min Stable Time (s)">
                 <NumberInput
-                  value={config.thresholds.stale_timeout}
-                  onChange={(v) => update("thresholds", "stale_timeout", v)}
+                  value={config.thresholds.min_stable_time}
+                  onChange={(v) => update("thresholds", "min_stable_time", v)}
+                  min={0}
+                  step={0.5}
+                />
+              </FieldRow>
+              <FieldRow label="Accuracy Jump Threshold">
+                <NumberInput
+                  value={config.thresholds.accuracy_jump_threshold}
+                  onChange={(v) => update("thresholds", "accuracy_jump_threshold", v)}
+                  min={0}
+                  step={0.1}
+                />
+              </FieldRow>
+              <FieldRow label="Staleness Timeout (s)">
+                <NumberInput
+                  value={config.thresholds.staleness_timeout}
+                  onChange={(v) => update("thresholds", "staleness_timeout", v)}
                   min={0}
                   step={0.5}
                 />
@@ -299,18 +330,26 @@ export default function SettingsPage() {
               <h3 className="text-xs uppercase tracking-wider text-text-secondary font-semibold mb-1">
                 Send Rates
               </h3>
-              <FieldRow label="Send Interval (s)">
+              <FieldRow label="Active Rate (s)">
                 <NumberInput
-                  value={config.rates.send_interval}
-                  onChange={(v) => update("rates", "send_interval", v)}
+                  value={config.rates.send_rate_active}
+                  onChange={(v) => update("rates", "send_rate_active", v)}
                   min={0.1}
                   step={0.1}
                 />
               </FieldRow>
-              <FieldRow label="Poll Interval (s)">
+              <FieldRow label="Passive Rate (s)">
                 <NumberInput
-                  value={config.rates.poll_interval}
-                  onChange={(v) => update("rates", "poll_interval", v)}
+                  value={config.rates.send_rate_passive}
+                  onChange={(v) => update("rates", "send_rate_passive", v)}
+                  min={0.1}
+                  step={0.1}
+                />
+              </FieldRow>
+              <FieldRow label="Degraded Rate (s)">
+                <NumberInput
+                  value={config.rates.send_rate_degraded}
+                  onChange={(v) => update("rates", "send_rate_degraded", v)}
                   min={0.1}
                   step={0.1}
                 />
@@ -333,19 +372,6 @@ export default function SettingsPage() {
                   value={config.logging.max_log_size_mb}
                   onChange={(v) => update("logging", "max_log_size_mb", v)}
                   min={1}
-                />
-              </FieldRow>
-            </div>
-
-            {/* Dish Address */}
-            <div>
-              <h3 className="text-xs uppercase tracking-wider text-text-secondary font-semibold mb-1">
-                Starlink
-              </h3>
-              <FieldRow label="Dish Address">
-                <TextInput
-                  value={config.starlink.dish_address}
-                  onChange={(v) => update("starlink", "dish_address", v)}
                 />
               </FieldRow>
             </div>

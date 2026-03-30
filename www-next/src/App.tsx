@@ -36,7 +36,7 @@ export default function App() {
           <>
             <StartupBanner position={status?.position ?? null} />
 
-            <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4 items-stretch">
               <StatusCards status={status} />
               <MapView position={status?.position ?? null} />
             </div>

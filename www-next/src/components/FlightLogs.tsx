@@ -17,7 +17,7 @@ export default function FlightLogs() {
     file: string;
     data: FlightLogTail;
   } | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewLoadingFile, setPreviewLoadingFile] = useState<string | null>(null);
 
   async function loadLogs() {
     setLoading(true);
@@ -41,14 +41,14 @@ export default function FlightLogs() {
       setPreview(null);
       return;
     }
-    setPreviewLoading(true);
+    setPreviewLoadingFile(file);
     try {
       const data = await tailFlightLog(file);
       setPreview({ file, data });
     } catch {
       setPreview(null);
     } finally {
-      setPreviewLoading(false);
+      setPreviewLoadingFile(null);
     }
   }
 
@@ -100,7 +100,7 @@ export default function FlightLogs() {
                       <Button
                         variant="secondary"
                         onClick={() => handlePreview(log.name)}
-                        loading={previewLoading && preview?.file !== log.name}
+                        loading={previewLoadingFile === log.name}
                       >
                         <Eye size={12} />
                         Preview

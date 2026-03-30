@@ -131,24 +131,27 @@ export default function MapView({ position }: MapViewProps) {
   }
 
   return (
-    <div className="bg-bg-card border border-border rounded-xl overflow-hidden relative">
-      {/* Auto-pan toggle */}
-      <label className="absolute top-2 right-2 z-[1000] bg-bg-card/90 border border-border rounded px-2 py-1 text-xs text-text-secondary flex items-center gap-1.5 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={autoPan}
-          onChange={(e) => setAutoPan(e.target.checked)}
-          className="accent-accent"
-        />
-        Auto-pan
-      </label>
+    <div className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col h-full min-h-[400px]">
+      {/* Map header with auto-pan */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <span className="text-xs uppercase tracking-wider text-text-secondary font-semibold">Satellite Map</span>
+        <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={autoPan}
+            onChange={(e) => setAutoPan(e.target.checked)}
+            className="accent-accent"
+          />
+          Auto-pan
+        </label>
+      </div>
 
       <MapContainer
         center={center}
         zoom={15}
-        className="h-[500px] w-full"
-        zoomControl={false}
-        attributionControl={false}
+        className="flex-1 w-full min-h-0"
+        zoomControl={true}
+        attributionControl={true}
       >
         <TileLayer
           url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"

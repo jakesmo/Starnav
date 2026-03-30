@@ -2,8 +2,8 @@
 
 export interface PositionData {
   timestamp: string;
-  startup_phase: string;
-  startup_detail: string;
+  startup_phase?: string | null;
+  startup_detail?: string;
   dish_address: string;
   mavlink_connection: string;
   uncertainty_limit: number;
@@ -74,11 +74,14 @@ export interface ConfigData {
   };
   thresholds: {
     uncertainty_limit: number;
-    stale_timeout: number;
+    min_stable_time: number;
+    accuracy_jump_threshold: number;
+    staleness_timeout: number;
   };
   rates: {
-    send_interval: number;
-    poll_interval: number;
+    send_rate_active: number;
+    send_rate_passive: number;
+    send_rate_degraded: number;
   };
   logging: {
     csv_enabled: boolean;

@@ -21,12 +21,15 @@ export const mavlinkSection = z.object({
 
 export const thresholdsSection = z.object({
   uncertainty_limit: positiveFloat,
-  stale_timeout: positiveFloat,
+  min_stable_time: positiveFloat,
+  accuracy_jump_threshold: positiveFloat,
+  staleness_timeout: positiveFloat,
 });
 
 export const ratesSection = z.object({
-  send_interval: positiveFloat,
-  poll_interval: positiveFloat,
+  send_rate_active: positiveFloat,
+  send_rate_passive: positiveFloat,
+  send_rate_degraded: positiveFloat,
 });
 
 export const loggingSection = z.object({
