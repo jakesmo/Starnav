@@ -179,9 +179,10 @@ export default function SettingsPage() {
       const res = await writeConfig(config);
       if (res.success) {
         setOriginal(config);
-        toast.success("Configuration saved. Restarting service...");
+        toast.success("Saved. Restarting service...");
         await executeCommand("restart");
-        toast.success("Service restarted.");
+        // Reload config from disk to confirm it persisted
+        await loadConfig();
       } else {
         toast.error(`Save failed: ${res.error ?? "Unknown error"}`);
       }

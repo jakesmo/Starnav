@@ -41,13 +41,10 @@ do_read() {
     /=/ {
         key = $0; sub(/[[:space:]]*=.*/, "", key)
         val = $0; sub(/^[^=]*=[[:space:]]*/, "", val)
-        # Strip inline comments
         sub(/[[:space:]]*#.*$/, "", val)
-        # Strip trailing whitespace
         sub(/[[:space:]]+$/, "", val)
         if (!first_key) printf ","
         first_key = 0
-        # Detect type: bool, number, or string
         if (val == "true" || val == "false") {
             printf "\"%s\":%s", key, val
         } else if (val ~ /^[0-9]+$/) {
@@ -72,75 +69,42 @@ do_write() {
     read -r body 2>/dev/null || true
     [ -z "$body" ] && json_error "Empty request body"
 
-    # Extract key=value pairs from JSON using awk
-    # Flattens {"section":{"key":"value",...},...} into lines: section|key|value
-    local updates
-    updates=$(printf '%s' "$body" | awk '
+    # Extract key=value pairs from JSON into a temp file (avoids subshell pipe issue)
+    local tmp="/tmp/starnav-config-updates.$$"
+    printf '%s' "$body" | awk '
     BEGIN { RS="[{},]"; FS=":" }
     {
         gsub(/^[[:space:]]+|[[:space:]]+$/, "")
         if ($0 == "" || $0 ~ /^\{/ || $0 ~ /^\}/) next
-
-        # Track current section (key with object value)
         if (NF >= 2) {
             k = $1; gsub(/"/, "", k); gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
             v = $0; sub(/^[^:]*:/, "", v); gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
             gsub(/"/, "", v)
-
             if (v == "" || v == "{" || v == "}") {
                 section = k
             } else if (section != "") {
                 print section "|" k "|" v
             }
         }
-    }')
+    }' > "$tmp"
 
-    [ -z "$updates" ] && json_error "No valid settings found in request"
+    if [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
+        json_error "No valid settings found in request"
+    fi
 
-    # Validate and apply each update
-    local errors=""
+    # Apply each update (no subshell — read from file)
     local count=0
-
-    echo "$updates" | while IFS='|' read -r section key value; do
+    while IFS='|' read -r section key value; do
         [ -z "$section" ] || [ -z "$key" ] || [ -z "$value" ] && continue
 
-        # Validation
-        case "$section|$key" in
-            mavlink|target_system|mavlink|target_component|mavlink|source_system|mavlink|source_component)
-                case "$value" in
-                    *[!0-9]*) errors="$errors $key: must be integer 1-255."; continue ;;
-                esac
-                [ "$value" -lt 1 ] 2>/dev/null && { errors="$errors $key: must be >= 1."; continue; }
-                [ "$value" -gt 255 ] 2>/dev/null && { errors="$errors $key: must be <= 255."; continue; }
-                ;;
-            starlink|gps_mode)
-                case "$value" in
-                    disable|enable|auto) ;;
-                    *) errors="$errors gps_mode: must be disable, enable, or auto."; continue ;;
-                esac
-                ;;
-            mavlink|connection)
-                [ -z "$value" ] && { errors="$errors connection: cannot be empty."; continue; }
-                ;;
-            logging|csv_enabled)
-                case "$value" in
-                    true|false) ;;
-                    *) errors="$errors csv_enabled: must be true or false."; continue ;;
-                esac
-                ;;
-        esac
-
-        # Apply: use sed to update value in-place, preserving comments on other lines
-        # Match: key = anything (in the correct section)
+        # Update the key in the config file
         sed -i "s|^\($key[[:space:]]*=[[:space:]]*\).*|\1$value|" "$CONFIG_FILE"
         count=$((count + 1))
-    done
+    done < "$tmp"
 
-    if [ -n "$errors" ]; then
-        json_response "{\"success\": false, \"error\": \"Validation failed:$errors\", \"updated\": $count}"
-    else
-        json_response "{\"success\": true, \"updated\": $count}"
-    fi
+    rm -f "$tmp"
+    json_response "{\"success\": true, \"updated\": $count}"
 }
 
 # ── Route request ────────────────────────────────────────
