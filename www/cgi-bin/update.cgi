@@ -92,14 +92,27 @@ if [ $PULL_RC -ne 0 ]; then
 fi
 send_event "Pull complete."
 
-# Step 4: Invalidate version cache
+# Step 4: Clean stale build artifacts not tracked by git
+send_event ""
+send_event "Cleaning stale files..."
+STALE=$(git clean -n -d www/assets/ www/cesium/ 2>/dev/null | wc -l)
+if [ "$STALE" -gt 0 ]; then
+    git clean -f -d www/assets/ www/cesium/ 2>&1 | while IFS= read -r line; do
+        send_event "  $line"
+    done
+    send_event "Removed $STALE stale file(s)."
+else
+    send_event "  No stale files."
+fi
+
+# Step 5: Invalidate version cache
 rm -f /tmp/starnav_git_remote
 send_event "Version cache cleared."
 
-# Step 5: Make scripts executable
+# Step 6: Make scripts executable
 chmod +x "$INSTALL_DIR/starnav.sh" "$INSTALL_DIR/www/starnav/cgi-bin/"*.cgi 2>/dev/null
 
-# Step 6: Restart service
+# Step 7: Restart service
 send_event ""
 send_event "Restarting StarNav service..."
 if [ -x "$INIT_SCRIPT" ]; then
@@ -119,7 +132,7 @@ else
     send_event "Init script not found -- manual restart needed."
 fi
 
-# Step 7: Show new version
+# Step 8: Show new version
 NEW_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 send_event ""
 send_event "Updated to commit $NEW_COMMIT"

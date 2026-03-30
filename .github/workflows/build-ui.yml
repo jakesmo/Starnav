@@ -44,7 +44,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add www/index.html www/assets/ -f
+          # Remove stale assets from git before adding fresh build
+          git rm -r --cached www/assets/ www/cesium/ 2>/dev/null || true
+          git add www/index.html www/assets/ www/cesium/ -f
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
