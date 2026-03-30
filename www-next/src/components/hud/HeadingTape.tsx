@@ -20,11 +20,11 @@ export default function HeadingTape({ heading }: HeadingTapeProps) {
   }
 
   return (
-    <div className="relative" style={{ width: TAPE_WIDTH, height: 42 }}>
+    <div className="relative" style={{ width: TAPE_WIDTH, height: 54 }}>
       <svg
         width={TAPE_WIDTH}
         height={42}
-        viewBox={`${-TAPE_WIDTH / 2} 0 ${TAPE_WIDTH} 42`}
+        viewBox={`${-TAPE_WIDTH / 2} 0 ${TAPE_WIDTH} 54`}
       >
         {/* Background */}
         <rect

@@ -10,7 +10,6 @@ import {
   ScreenSpaceEventType,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import type { PositionData } from "../../api/types";
 import type { InterpolatedState } from "./useInterpolation";
 
 // Cesium Ion access token (provided by user)
@@ -18,7 +17,6 @@ Ion.defaultAccessToken =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIzZWRjMWYxOS0xZDExLTQyYWQtYjA5OS05ZjFjNzIyMjRjZGMiLCJpZCI6NDExNDM0LCJpYXQiOjE3NzQ4OTM0NDR9.cZWL8MxEOKxh7Pn9iG2THLaZG5Dk1E4tWlyC11iI-5U";
 
 interface CesiumSceneProps {
-  position: PositionData | null;
   interpolated: InterpolatedState;
   isActive: boolean;
   cameraLocked: boolean;

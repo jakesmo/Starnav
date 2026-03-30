@@ -9,6 +9,16 @@ interface HudViewProps {
   isActive: boolean;
 }
 
+/** True when we have a live MAVLink connection with real telemetry. */
+function hasConnection(position: PositionData | null): boolean {
+  if (!position) return false;
+  if (position.startup_phase) return false;
+  // If attitude is all null, autopilot hasn't sent ATTITUDE yet
+  const att = position.attitude;
+  if (!att || (att.roll == null && att.pitch == null && att.yaw == null)) return false;
+  return true;
+}
+
 export default function HudView({ position, isActive }: HudViewProps) {
   const [cameraLocked, setCameraLocked] = useState(true);
   const [browserVisible, setBrowserVisible] = useState(!document.hidden);
@@ -22,13 +32,34 @@ export default function HudView({ position, isActive }: HudViewProps) {
     return () => document.removeEventListener("visibilitychange", onVisChange);
   }, []);
 
-  const shouldRender = isActive && browserVisible;
+  const connected = hasConnection(position);
+  const shouldRender = isActive && browserVisible && connected;
   const interp = useInterpolation(position, shouldRender);
+
+  // No connection — show message instead of fake HUD
+  if (!connected) {
+    return (
+      <div className="relative w-full h-full bg-black overflow-hidden rounded-lg flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-12 h-12 mx-auto rounded-full border-2 border-amber-500/50 flex items-center justify-center">
+            <div className="w-3 h-3 rounded-full bg-amber-500 animate-pulse" />
+          </div>
+          <div className="text-amber-400 font-semibold text-lg">
+            No MAVLink Connection
+          </div>
+          <div className="text-text-secondary text-sm max-w-xs">
+            {position?.startup_phase
+              ? `${position.startup_detail || position.startup_phase}...`
+              : "Waiting for autopilot telemetry. The HUD requires live attitude and position data to render."}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full h-full bg-black overflow-hidden rounded-lg">
       <CesiumScene
-        position={position}
         interpolated={interp}
         isActive={shouldRender}
         cameraLocked={cameraLocked}
