@@ -53,7 +53,7 @@ export default function FlightLogs() {
   }
 
   return (
-    <Card title="Flight Logs (CSV)">
+    <Card title="StarNav Logs (CSV)">
       <div className="flex justify-end mb-2">
         <Button variant="secondary" onClick={loadLogs} loading={loading}>
           <RefreshCw size={13} />
