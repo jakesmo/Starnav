@@ -67,7 +67,7 @@ export default function FlightLogs() {
 
       {!loading && !error && logs.length === 0 && (
         <div className="text-text-secondary text-sm py-4 text-center">
-          No flight logs found.
+          No logs found.
         </div>
       )}
 
