@@ -146,27 +146,46 @@ All settings are in `/etc/starnav.conf` (INI format).
 
 ## Web Dashboard
 
-Access at `http://<router-ip>:8082`. Features:
+React 19 SPA served at `http://<router-ip>:8082`. Built with Vite + Tailwind CSS v4, matching the RVR L2 Bridge UI pattern.
 
-- **Live satellite map** with aircraft position, Starlink position, and uncertainty circle
-- **Starlink Position card** — lat/lon, altitude, 1-sigma/99% uncertainty, send status, correction flag
-- **Aircraft card** — GPS position, EKF position, attitude, 3D position error
-- **EKF Health card** — active source (GPS/EXTPOS), position variance, quality gate status, position freshness, send rate, ACK acceptance rate
-- **Live log stream** via Server-Sent Events with color-coded levels
-- **Flight log manager** — browse, preview, and download CSV flight logs without SSH
-- **Service controls** — Start, Stop, Restart buttons
-- **Help panel** — inline documentation with parameter reference and troubleshooting
-- **Update Now** — one-click git pull with live progress streaming
+### Tabs
 
-### Web API Endpoints
+| Tab | Description |
+|-----|-------------|
+| **Map** (default) | Full-viewport satellite map with aircraft position, Starlink position, GPS marker, uncertainty circle, 60s position trail, and legend |
+| **Dashboard** | Status cards (Process, Starlink Position, Aircraft, EKF Health) in 2x2 grid, live SSE debug log, StarNav CSV log browser |
+| **Settings** | Config editor (target system, MAVLink connection, GPS mode, thresholds, rates) with Zod validation, save & restart |
+| **Help** | ArduPilot parameter setup, configuration reference, troubleshooting |
+
+### Features
+
+- **Startup banner** — shows connection state during heartbeat wait (amber pulsing indicator with elapsed time)
+- **SSE status streaming** with polling fallback for RVR link budget optimization
+- **Service controls** — Start, Stop, Restart buttons in header
+- **Log viewer** — real-time SSE stream with pause, clear, color-coded levels
+- **StarNav log manager** — browse, preview (last 50 rows), and download CSV logs without SSH
+
+### Web UI Development
+
+Source is in `www-next/` (React + TypeScript + Vite). Built output goes to `www/`. GitHub Actions auto-builds on push.
+
+```bash
+cd www-next
+npm install
+npm run dev          # dev server with proxy to router
+npm run build        # production build to ../www/
+```
+
+### API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/cgi-bin/status-stream.cgi` | GET | SSE status push stream (replaces polling) |
+| `/cgi-bin/status-stream.cgi` | GET | SSE status push stream |
 | `/cgi-bin/status.cgi` | GET | Process status + live position JSON (fallback) |
-| `/cgi-bin/api.cgi` | POST | Service control (`start`, `stop`, `restart`, `status`) |
+| `/cgi-bin/api.cgi` | POST | Service control (`start`, `stop`, `restart`) |
+| `/cgi-bin/config.cgi` | GET/POST | Config read (`?action=read`) and write (JSON body) |
 | `/cgi-bin/logs.cgi` | GET | SSE log stream |
-| `/cgi-bin/logs-csv.cgi` | GET | Flight log list, preview, and download (`?action=list\|download\|tail`) |
+| `/cgi-bin/logs-csv.cgi` | GET | Log list, preview, download (`?action=list\|download\|tail`) |
 | `/cgi-bin/version.cgi` | GET | Git version + update check |
 | `/cgi-bin/update.cgi` | GET | SSE update progress stream |
 
@@ -231,17 +250,28 @@ starnav.sh                  Startup wrapper (config, NTP, dish GPS control)
 starnav.init                OpenWRT procd service definition
 starnav.conf                Configuration file (INI format)
 install.sh                  Installer + uninstaller (wget one-liner supported)
-www/starnav/
-  index.html                Web dashboard (single-page app)
-  cgi-bin/
-    status-stream.cgi       SSE status push stream (primary)
-    status.cgi              Process + position status API (fallback)
+www-next/                   React UI source (Vite + Tailwind + TypeScript)
+  src/
+    api/                    API client and TypeScript types
+    components/             React components (Map, Dashboard, Settings, Help)
+    hooks/                  useStatus (SSE+polling), useLogStream (SSE)
+    lib/                    Formatting utils, Zod schemas
+www/                        Built output (committed, served by uhttpd)
+  index.html                SPA entry point
+  assets/                   Bundled JS/CSS chunks
+  cgi-bin/                  Backend CGI scripts (shell)
+    status-stream.cgi       SSE status push stream
+    status.cgi              Status API (polling fallback)
+    config.cgi              Config read/write API
     api.cgi                 Service control API
     logs.cgi                SSE log streaming
-    logs-csv.cgi            Flight log list, preview, and download
+    logs-csv.cgi            StarNav log list, preview, download
     version.cgi             Git version + update check
     update.cgi              SSE update progress streaming
+packages/                   Bundled .ipk files for offline install
 starlink-grpc-tools/        Starlink gRPC client (submodule)
+.github/workflows/
+  build-ui.yml              Auto-build www/ on push to www-next/
 ```
 
 ## Dependencies
