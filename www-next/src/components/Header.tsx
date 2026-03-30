@@ -13,8 +13,8 @@ interface HeaderProps {
 }
 
 const tabs: { id: AppTab; label: string }[] = [
-  { id: "dashboard", label: "Dashboard" },
   { id: "map", label: "Map" },
+  { id: "dashboard", label: "Dashboard" },
   { id: "settings", label: "Settings" },
   { id: "help", label: "Help" },
 ];
