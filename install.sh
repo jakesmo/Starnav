@@ -331,7 +331,7 @@ install_init_script() {
 # INSTALL: WEB SERVER (uhttpd)
 #############################################
 install_web_server() {
-    info "Configuring web server (port 8081)..."
+    info "Configuring web server (port 8082)..."
 
     uci set uhttpd.starnav=uhttpd
     uci set "uhttpd.starnav.home=${INSTALL_DIR}/www/starnav"
@@ -342,12 +342,12 @@ install_web_server() {
     uci set uhttpd.starnav.tcp_keepalive='1'
     # Clear existing listen list before re-adding (idempotent)
     uci -q delete uhttpd.starnav.listen_http || true
-    uci add_list uhttpd.starnav.listen_http='0.0.0.0:8081'
-    uci add_list uhttpd.starnav.listen_http='[::]:8081'
+    uci add_list uhttpd.starnav.listen_http='0.0.0.0:8082'
+    uci add_list uhttpd.starnav.listen_http='[::]:8082'
     uci commit uhttpd
 
     /etc/init.d/uhttpd restart
-    ok "Web UI available on port 8081"
+    ok "Web UI available on port 8082"
 }
 
 #############################################
@@ -396,11 +396,11 @@ do_install() {
     echo ""
     echo "  Install dir:  $INSTALL_DIR"
     echo "  Config:       $CONFIG_FILE"
-    echo "  Web UI:       http://<router-ip>:8081/"
+    echo "  Web UI:       http://<router-ip>:8082/"
     echo ""
     echo "  1. Edit $CONFIG_FILE to set your MAVLink endpoint"
     echo "  2. Start:   /etc/init.d/starnav start"
-    echo "  3. Web UI:  http://<router-ip>:8081/"
+    echo "  3. Web UI:  http://<router-ip>:8082/"
     echo "  4. Logs:    logread -e starnav"
     echo "  5. Stop:    /etc/init.d/starnav stop"
     echo "  6. Update:  $INSTALL_DIR/install.sh"

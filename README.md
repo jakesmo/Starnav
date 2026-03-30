@@ -52,7 +52,7 @@ vi /etc/starnav.conf
 /etc/init.d/starnav start
 
 # Open the web dashboard
-# http://<router-ip>:8081
+# http://<router-ip>:8082
 
 # Uninstall
 sh /opt/starnav/install.sh --uninstall
@@ -146,7 +146,7 @@ All settings are in `/etc/starnav.conf` (INI format).
 
 ## Web Dashboard
 
-Access at `http://<router-ip>:8081`. Features:
+Access at `http://<router-ip>:8082`. Features:
 
 - **Live satellite map** with aircraft position, Starlink position, and uncertainty circle
 - **Starlink Position card** — lat/lon, altitude, 1-sigma/99% uncertainty, send status, correction flag
@@ -208,7 +208,7 @@ ls -la /root/starlink_logs/
 cat /tmp/starnav_status.json | python3 -m json.tool
 
 # Version and update status
-curl http://localhost:8081/cgi-bin/version.cgi
+curl http://localhost:8082/cgi-bin/version.cgi
 ```
 
 ## Troubleshooting
@@ -221,7 +221,7 @@ curl http://localhost:8081/cgi-bin/version.cgi
 | EKF rejecting data | Verify `EK3_SRC2_POSXY=8`, `EK3_EXTPOS_GATE=500`. Set `EK3_EXTPOS_DBG=1` for rejection messages. |
 | High ACK rejection rate | May indicate large innovation. Check 3D accuracy in dashboard. |
 | Update check incorrect | Clear cache: `rm /tmp/starnav_git_remote` or append `?invalidate` to version.cgi URL. |
-| Web UI unreachable | Verify uhttpd on port 8081: `netstat -tlnp \| grep 8081`. Re-run `install.sh` if needed. |
+| Web UI unreachable | Verify uhttpd on port 8082: `netstat -tlnp \| grep 8082`. Re-run `install.sh` if needed. |
 
 ## Project Structure
 
