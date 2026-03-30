@@ -1365,8 +1365,12 @@ function connectStatusStream() {
 
     const es = new EventSource(CFG.statusStreamUrl);
     _statusStream = es;
+    let gotMessage = false;
 
     es.onmessage = (evt) => {
+        gotMessage = true;
+        // Stop fallback polling once SSE is working
+        if (_statusFallbackTimer) { clearInterval(_statusFallbackTimer); _statusFallbackTimer = null; }
         try {
             const data = JSON.parse(evt.data);
             state.lastStatus = data;
@@ -1376,12 +1380,24 @@ function connectStatusStream() {
     };
 
     es.onerror = () => {
-        es.close();
-        _statusStream = null;
-        console.warn('Status stream lost, falling back to polling');
-        _statusFallbackTimer = setInterval(fetchStatus, CFG.statusInterval);
-        setTimeout(connectStatusStream, 10000);
+        // If we never got a message, SSE endpoint may be down — fall back to polling
+        if (!gotMessage) {
+            es.close();
+            _statusStream = null;
+            console.warn('Status stream unavailable, using polling');
+            if (!_statusFallbackTimer) {
+                _statusFallbackTimer = setInterval(fetchStatus, CFG.statusInterval);
+            }
+            setTimeout(connectStatusStream, 10000);
+        }
+        // If we had messages before, let EventSource auto-reconnect (built-in retry)
     };
+
+    // Start polling immediately as backup until SSE delivers first message
+    if (!_statusFallbackTimer) {
+        fetchStatus();
+        _statusFallbackTimer = setInterval(fetchStatus, CFG.statusInterval);
+    }
 }
 
 // ── Status UI update ─────────────────────────────────────
