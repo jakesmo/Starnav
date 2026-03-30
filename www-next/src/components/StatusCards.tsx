@@ -143,9 +143,14 @@ export default function StatusCards({ status }: StatusCardsProps) {
         />
         <StatusRow
           label="Quality gate"
-          value={pos?.quality_ok ? "PASS" : pos ? "BLOCKED" : "--"}
+          value={
+            pos?.startup_phase ? "--"
+              : pos?.quality_ok ? "PASS"
+              : pos ? "BLOCKED"
+              : "--"
+          }
           className={
-            pos
+            pos && !pos.startup_phase
               ? pos.quality_ok
                 ? "text-success"
                 : "text-warning"

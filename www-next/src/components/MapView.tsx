@@ -107,10 +107,10 @@ export default function MapView({ position }: MapViewProps) {
       ? "#f59e0b"
       : "#ef4444";
 
-  const center: [number, number] =
-    starlinkLat != null && starlinkLon != null
-      ? [starlinkLat, starlinkLon]
-      : [0, 0];
+  const hasPosition = starlinkLat != null && starlinkLon != null;
+  const center: [number, number] = hasPosition
+    ? [starlinkLat, starlinkLon]
+    : [20, 0];
 
   // Build trail segments with fading opacity
   const trailSegments: { positions: [number, number][]; opacity: number }[] =
@@ -148,7 +148,7 @@ export default function MapView({ position }: MapViewProps) {
 
       <MapContainer
         center={center}
-        zoom={15}
+        zoom={hasPosition ? 17 : 2}
         className="flex-1 w-full min-h-0"
         zoomControl={true}
         attributionControl={true}
