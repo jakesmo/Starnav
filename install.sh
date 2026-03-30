@@ -155,6 +155,7 @@ download_repo() {
     fi
 
     rm -rf "$INSTALL_DIR"
+    mkdir -p "$(dirname "$INSTALL_DIR")"
     mv "/tmp/$extracted" "$INSTALL_DIR"
     ok "Extracted to $INSTALL_DIR"
 }
