@@ -1,0 +1,182 @@
+import Card from "./ui/Card";
+
+function Table({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: string[][];
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border border-border rounded-md overflow-hidden">
+        <thead>
+          <tr className="bg-bg-secondary">
+            {headers.map((h) => (
+              <th
+                key={h}
+                className="text-left text-xs font-medium text-text-secondary px-3 py-2 border-b border-border"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-border last:border-0">
+              {row.map((cell, j) => (
+                <td key={j} className="px-3 py-1.5 text-text-primary">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Code({ children }: { children: React.ReactNode }) {
+  return (
+    <code className="bg-accent/10 text-accent text-xs px-1.5 py-0.5 rounded">
+      {children}
+    </code>
+  );
+}
+
+export default function HelpPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Overview */}
+      <Card title="Overview">
+        <div className="text-sm text-text-secondary space-y-2">
+          <p>
+            StarNav bridges Starlink dish location data to ArduPilot via MAVLink.
+            It reads the dish's gRPC position API, applies quality checks, and
+            sends <Code>GPS_INPUT</Code> messages to the flight controller's EKF
+            as an external position source.
+          </p>
+          <p>
+            This enables GPS-denied navigation using Starlink's internal position
+            solution with sub-5m accuracy. The system can operate as the primary
+            or secondary EKF source alongside a traditional GNSS receiver.
+          </p>
+        </div>
+      </Card>
+
+      {/* ArduPilot Parameters */}
+      <Card title="ArduPilot Parameter Setup">
+        <div className="text-sm text-text-secondary mb-3">
+          <p>
+            Configure these parameters on the flight controller. EK3_SRC2 is
+            typically used for the Starlink source, activated via RC switch or
+            scripting.
+          </p>
+        </div>
+        <Table
+          headers={["Parameter", "Value", "Description"]}
+          rows={[
+            ["EK3_SRC2_POSXY", "6", "ExternalNav for horizontal position"],
+            ["EK3_SRC2_POSZ", "1", "Baro for vertical (recommended)"],
+            ["EK3_SRC2_VELXY", "6", "ExternalNav for velocity"],
+            ["EK3_SRC2_VELZ", "0", "None (no vertical velocity)"],
+            ["EK3_SRC2_YAW", "1", "Compass (unchanged)"],
+            ["GPS_TYPE", "14", "MAVLink GPS"],
+            ["GPS_DELAY_MS", "200", "Typical Starlink latency"],
+            ["RC7_OPTION", "90", "EKF source set selector (optional)"],
+            ["EK3_SRC_OPTIONS", "1", "FuseAllVelocities (recommended)"],
+          ]}
+        />
+      </Card>
+
+      {/* Configuration Reference */}
+      <Card title="Configuration Reference">
+        <div className="text-sm text-text-secondary mb-3">
+          <p>
+            Settings in <Code>starnav.conf</Code> on the companion computer.
+            Edit via the Settings tab or directly on the device.
+          </p>
+        </div>
+        <Table
+          headers={["Setting", "Default", "Description"]}
+          rows={[
+            ["starlink.dish_address", "192.168.100.1", "Dish gRPC endpoint"],
+            ["starlink.gps_mode", "auto", "Control dish GPS: disable/enable/auto"],
+            ["mavlink.connection", "udp:127.0.0.1:14550", "MAVLink connection string"],
+            ["mavlink.target_system", "1", "Autopilot system ID"],
+            ["mavlink.target_component", "1", "Autopilot component ID"],
+            ["thresholds.uncertainty_limit", "10", "Max 99% uncertainty (m) to send"],
+            ["thresholds.stale_timeout", "5", "Seconds before position is stale"],
+            ["rates.send_interval", "0.2", "GPS_INPUT send interval (seconds)"],
+            ["rates.poll_interval", "1", "Dish position poll interval (seconds)"],
+            ["logging.csv_enabled", "true", "Enable CSV flight logging"],
+            ["logging.max_log_size_mb", "50", "Max CSV log file size"],
+          ]}
+        />
+      </Card>
+
+      {/* Troubleshooting */}
+      <Card title="Troubleshooting">
+        <div className="space-y-3 text-sm">
+          <div className="border-b border-border pb-2">
+            <p className="text-text-primary font-medium">
+              No position data / "Connecting to dish..."
+            </p>
+            <p className="text-text-secondary mt-1">
+              Verify the dish address is reachable (<Code>ping 192.168.100.1</Code>).
+              Check that the Starlink dish is powered on and booted. The gRPC
+              API needs 30-60s after dish boot.
+            </p>
+          </div>
+
+          <div className="border-b border-border pb-2">
+            <p className="text-text-primary font-medium">
+              "Waiting for autopilot heartbeat..."
+            </p>
+            <p className="text-text-secondary mt-1">
+              No MAVLink heartbeat received. Verify the connection string in
+              settings, check physical wiring (serial) or network (UDP).
+              Confirm the autopilot is powered and sending heartbeats.
+            </p>
+          </div>
+
+          <div className="border-b border-border pb-2">
+            <p className="text-text-primary font-medium">
+              Quality gate shows BLOCKED
+            </p>
+            <p className="text-text-secondary mt-1">
+              The 99% uncertainty exceeds the configured limit. This is normal
+              during dish startup or partial sky view. Wait for the uncertainty
+              to decrease, or increase the threshold if the environment warrants it.
+            </p>
+          </div>
+
+          <div className="border-b border-border pb-2">
+            <p className="text-text-primary font-medium">
+              EKF source stuck on GPS
+            </p>
+            <p className="text-text-secondary mt-1">
+              The autopilot has not switched to the ExternalNav source set. Use
+              an RC switch (RC7_OPTION=90) or ensure the flight mode / scripting
+              triggers a source switch. Check EK3_SRC2_POSXY is set to 6.
+            </p>
+          </div>
+
+          <div className="pb-0">
+            <p className="text-text-primary font-medium">
+              Low ACK accept rate
+            </p>
+            <p className="text-text-secondary mt-1">
+              The autopilot is rejecting GPS_INPUT messages. This may indicate
+              large position jumps or EKF divergence. Check position variance
+              in the EKF Health card. A restart of the EKF (or re-arm) may help
+              after resolving the root cause.
+            </p>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}

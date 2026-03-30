@@ -1,0 +1,214 @@
+import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Circle,
+  Polyline,
+  useMap,
+} from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import type { PositionData } from "../api/types";
+
+interface MapViewProps {
+  position: PositionData | null;
+}
+
+// Aircraft SVG icon, rotatable via CSS transform
+function makeAircraftIcon(heading: number): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    html: `<div style="transform:rotate(${heading}deg);width:36px;height:36px">
+      <svg viewBox="0 0 32 32" width="36" height="36">
+        <polygon points="16,2 26,28 16,22 6,28" fill="#e03030" stroke="#000" stroke-width="1.5"/>
+      </svg>
+    </div>`,
+  });
+}
+
+const starlinkIcon = L.divIcon({
+  className: "",
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+  html: `<div style="width:14px;height:14px;border-radius:50%;background:#3b82f6;border:2px solid #1e40af"></div>`,
+});
+
+const gpsIcon = L.divIcon({
+  className: "",
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+  html: `<div style="width:12px;height:12px;background:#f59e0b;border:2px solid #b45309;transform:rotate(45deg)"></div>`,
+});
+
+// Trail point with timestamp
+interface TrailPoint {
+  lat: number;
+  lng: number;
+  time: number;
+}
+
+const TRAIL_DURATION = 60_000; // 60 seconds
+
+// Sub-component to handle map panning
+function MapPanner({
+  lat,
+  lng,
+  autoPan,
+}: {
+  lat: number;
+  lng: number;
+  autoPan: boolean;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (autoPan) {
+      map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    }
+  }, [map, lat, lng, autoPan]);
+  return null;
+}
+
+export default function MapView({ position }: MapViewProps) {
+  const [autoPan, setAutoPan] = useState(true);
+  const trailRef = useRef<TrailPoint[]>([]);
+  const [trail, setTrail] = useState<TrailPoint[]>([]);
+
+  const starlinkLat = position?.starlink?.lat;
+  const starlinkLon = position?.starlink?.lon;
+  const gpsLat = position?.gps?.lat;
+  const gpsLon = position?.gps?.lon;
+  const heading = position?.attitude?.yaw ?? 0;
+  const uncertainty99 = position?.starlink?.uncertainty_99;
+
+  // Update trail
+  const updateTrail = useCallback(() => {
+    if (starlinkLat == null || starlinkLon == null) return;
+
+    const now = Date.now();
+    trailRef.current.push({ lat: starlinkLat, lng: starlinkLon, time: now });
+    // Prune old points
+    trailRef.current = trailRef.current.filter(
+      (p) => now - p.time < TRAIL_DURATION,
+    );
+    setTrail([...trailRef.current]);
+  }, [starlinkLat, starlinkLon]);
+
+  useEffect(() => {
+    updateTrail();
+  }, [updateTrail]);
+
+  // Uncertainty circle color
+  const circleColor = position?.sending
+    ? "#22c55e"
+    : position?.quality_ok
+      ? "#f59e0b"
+      : "#ef4444";
+
+  const center: [number, number] =
+    starlinkLat != null && starlinkLon != null
+      ? [starlinkLat, starlinkLon]
+      : [0, 0];
+
+  // Build trail segments with fading opacity
+  const trailSegments: { positions: [number, number][]; opacity: number }[] =
+    [];
+  if (trail.length >= 2) {
+    const now = Date.now();
+    for (let i = 0; i < trail.length - 1; i++) {
+      const age = now - trail[i].time;
+      const opacity = Math.max(0.1, 1 - age / TRAIL_DURATION);
+      trailSegments.push({
+        positions: [
+          [trail[i].lat, trail[i].lng],
+          [trail[i + 1].lat, trail[i + 1].lng],
+        ],
+        opacity,
+      });
+    }
+  }
+
+  return (
+    <div className="bg-bg-card border border-border rounded-xl overflow-hidden relative">
+      {/* Auto-pan toggle */}
+      <label className="absolute top-2 right-2 z-[1000] bg-bg-card/90 border border-border rounded px-2 py-1 text-xs text-text-secondary flex items-center gap-1.5 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={autoPan}
+          onChange={(e) => setAutoPan(e.target.checked)}
+          className="accent-accent"
+        />
+        Auto-pan
+      </label>
+
+      <MapContainer
+        center={center}
+        zoom={15}
+        className="h-[500px] w-full"
+        zoomControl={false}
+        attributionControl={false}
+      >
+        <TileLayer
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+          maxZoom={19}
+        />
+
+        {starlinkLat != null && starlinkLon != null && (
+          <>
+            <MapPanner
+              lat={starlinkLat}
+              lng={starlinkLon}
+              autoPan={autoPan}
+            />
+
+            {/* Uncertainty circle */}
+            {uncertainty99 != null && (
+              <Circle
+                center={[starlinkLat, starlinkLon]}
+                radius={uncertainty99}
+                pathOptions={{
+                  color: circleColor,
+                  fillColor: circleColor,
+                  fillOpacity: 0.12,
+                  weight: 1.5,
+                }}
+              />
+            )}
+
+            {/* Aircraft marker (Starlink position) */}
+            <Marker
+              position={[starlinkLat, starlinkLon]}
+              icon={makeAircraftIcon(heading)}
+            />
+
+            {/* Starlink marker */}
+            <Marker
+              position={[starlinkLat, starlinkLon]}
+              icon={starlinkIcon}
+            />
+          </>
+        )}
+
+        {/* GPS marker */}
+        {gpsLat != null && gpsLon != null && (
+          <Marker position={[gpsLat, gpsLon]} icon={gpsIcon} />
+        )}
+
+        {/* Position trail */}
+        {trailSegments.map((seg, i) => (
+          <Polyline
+            key={i}
+            positions={seg.positions}
+            pathOptions={{
+              color: "#22d3ee",
+              weight: 2.5,
+              opacity: seg.opacity,
+            }}
+          />
+        ))}
+      </MapContainer>
+    </div>
+  );
+}

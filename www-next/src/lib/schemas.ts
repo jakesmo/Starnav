@@ -1,0 +1,45 @@
+// Zod schemas for config validation
+
+import { z } from "zod";
+
+const positiveFloat = z.coerce.number().positive();
+const positiveInt = z.coerce.number().int().positive();
+const mavlinkId = z.coerce.number().int().min(1).max(255);
+
+export const starlinkSection = z.object({
+  dish_address: z.string().min(1, "Dish address is required"),
+  gps_mode: z.enum(["disable", "enable", "auto"]),
+});
+
+export const mavlinkSection = z.object({
+  connection: z.string().min(1, "Connection string is required"),
+  target_system: mavlinkId,
+  target_component: mavlinkId,
+  source_system: mavlinkId,
+  source_component: mavlinkId,
+});
+
+export const thresholdsSection = z.object({
+  uncertainty_limit: positiveFloat,
+  stale_timeout: positiveFloat,
+});
+
+export const ratesSection = z.object({
+  send_interval: positiveFloat,
+  poll_interval: positiveFloat,
+});
+
+export const loggingSection = z.object({
+  csv_enabled: z.coerce.boolean(),
+  max_log_size_mb: positiveInt,
+});
+
+export const configSchema = z.object({
+  starlink: starlinkSection,
+  mavlink: mavlinkSection,
+  thresholds: thresholdsSection,
+  rates: ratesSection,
+  logging: loggingSection,
+});
+
+export type ValidatedConfig = z.infer<typeof configSchema>;

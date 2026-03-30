@@ -1,1 +1,9 @@
 .DS_Store
+
+# Web UI build
+www-next/node_modules/
+www-next/dist/
+
+# Python
+__pycache__/
+*.pyc
