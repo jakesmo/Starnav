@@ -165,17 +165,27 @@ download_repo() {
 #############################################
 install_system_packages() {
     local pkg_dir="$INSTALL_DIR/packages"
+    local need_feeds=0
 
     # Prefer bundled .ipk files (no network needed)
     if [ -d "$pkg_dir" ] && ls "$pkg_dir"/*.ipk >/dev/null 2>&1; then
         info "Installing system packages from bundled .ipk files..."
         # shellcheck disable=SC2086
         opkg install "$pkg_dir"/*.ipk --force-depends \
-            2>&1 | grep -vE "has no valid architecture|Configuring|already installed" || true
+            2>&1 | grep -vE "has no valid architecture|Configuring|already installed|Updating database|Database update" || true
+
+        # Check if critical packages actually installed
+        if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
+            warn "Bundled packages incomplete for this device -- trying opkg feeds"
+            need_feeds=1
+        fi
     else
-        # Fallback: download from feeds (slow, requires network)
-        warn "No bundled packages found -- falling back to opkg feeds (this takes ~30s)"
-        info "Updating package feeds..."
+        need_feeds=1
+    fi
+
+    # Fallback: download from feeds (slow, requires network)
+    if [ "$need_feeds" = "1" ]; then
+        info "Updating package feeds (this takes ~30s)..."
         opkg update 2>&1 | grep -vE "has no valid architecture|ignoring" || warn "opkg update failed (continuing with cached feeds)"
 
         info "Installing system packages from feeds..."
@@ -183,10 +193,9 @@ install_system_packages() {
             | grep -vE "has no valid architecture|ignoring|Updating database|Database update" || true
     fi
 
-    # NTP: try bundled first, then feeds
+    # NTP: install if not already present
     if ! command -v ntpd >/dev/null 2>&1 && ! command -v sntpd >/dev/null 2>&1; then
-        opkg install ntpd 2>&1 | grep -vE "has no valid architecture|ignoring" || \
-            opkg install sntpd 2>&1 | grep -vE "has no valid architecture|ignoring" || \
+        opkg install ntpd 2>/dev/null || opkg install sntpd 2>/dev/null || \
             warn "Could not install NTP client (clock sync may not work)"
     fi
 
