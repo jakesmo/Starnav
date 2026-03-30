@@ -92,6 +92,48 @@ import starlink_grpc
 A = 6378137.0          # semi-major axis
 E2 = 6.69437999014e-3  # eccentricity squared
 
+# ArduPilot flight mode lookup tables (custom_mode → name)
+COPTER_MODES = {
+    0: "STABILIZE", 1: "ACRO", 2: "ALT_HOLD", 3: "AUTO", 4: "GUIDED",
+    5: "LOITER", 6: "RTL", 7: "CIRCLE", 9: "LAND", 11: "DRIFT",
+    13: "SPORT", 14: "FLIP", 15: "AUTOTUNE", 16: "POSHOLD", 17: "BRAKE",
+    18: "THROW", 19: "AVOID_ADSB", 20: "GUIDED_NOGPS", 21: "SMART_RTL",
+    22: "FLOWHOLD", 23: "FOLLOW", 24: "ZIGZAG", 25: "SYSTEMID",
+    26: "AUTOROTATE", 27: "AUTO_RTL",
+}
+PLANE_MODES = {
+    0: "MANUAL", 1: "CIRCLE", 2: "STABILIZE", 3: "TRAINING", 4: "ACRO",
+    5: "FBWA", 6: "FBWB", 7: "CRUISE", 8: "AUTOTUNE", 10: "AUTO",
+    11: "RTL", 12: "LOITER", 13: "TAKEOFF", 14: "AVOID_ADSB", 15: "GUIDED",
+    17: "QSTABILIZE", 18: "QHOVER", 19: "QLOITER", 20: "QLAND",
+    21: "QRTL", 22: "QAUTOTUNE", 23: "QACRO", 24: "THERMAL",
+    25: "LOITER_ALT_QLAND",
+}
+ROVER_MODES = {
+    0: "MANUAL", 1: "ACRO", 3: "STEERING", 4: "HOLD", 5: "LOITER",
+    6: "FOLLOW", 7: "SIMPLE", 10: "AUTO", 11: "RTL", 12: "SMART_RTL",
+    15: "GUIDED",
+}
+# MAV_TYPE → mode table
+MODE_TABLES = {
+    1: COPTER_MODES,   # MAV_TYPE_FIXED_WING (use plane)
+    2: COPTER_MODES,   # MAV_TYPE_QUADROTOR
+    3: COPTER_MODES,   # MAV_TYPE_COAXIAL
+    4: COPTER_MODES,   # MAV_TYPE_HELICOPTER
+    10: ROVER_MODES,   # MAV_TYPE_GROUND_ROVER
+    13: COPTER_MODES,  # MAV_TYPE_HEXAROTOR
+    14: COPTER_MODES,  # MAV_TYPE_OCTOROTOR
+    20: COPTER_MODES,  # MAV_TYPE_TRICOPTER
+}
+# Fixed-wing types use plane modes
+for _t in (1, 21, 22):
+    MODE_TABLES[_t] = PLANE_MODES
+
+def get_flight_mode_name(vtype, cmode):
+    """Resolve ArduPilot custom_mode to human-readable name."""
+    table = MODE_TABLES.get(vtype, PLANE_MODES)
+    return table.get(cmode, f"MODE_{cmode}")
+
 # Minimum plausible epoch (2024-01-01 UTC) to detect unsynced RTC
 MIN_SANE_EPOCH = 1704067200.0
 _ntp_warned = False
@@ -222,6 +264,35 @@ def write_status_file(data):
         "position_age":     sf(data.get("position_age", 0.0), 1),
         "ekf_source":       data.get("ekf_source", "unknown"),
         "ack_accept_rate":  sf(data.get("ack_accept_rate", 0.0), 1),
+        # HUD telemetry (v1.1)
+        "gps_sats":         data.get("gps_sats", 0),
+        "gps_hdop":         sf(data.get("gps_hdop", float("nan")), 2),
+        "flight_mode":      data.get("flight_mode"),
+        "vfr_hud": {
+            "airspeed":    sf(data.get("vfr_hud", {}).get("airspeed", float("nan")), 1),
+            "groundspeed": sf(data.get("vfr_hud", {}).get("groundspeed", float("nan")), 1),
+            "heading":     data.get("vfr_hud", {}).get("heading", 0),
+            "throttle":    data.get("vfr_hud", {}).get("throttle", 0),
+            "alt":         sf(data.get("vfr_hud", {}).get("alt", float("nan")), 1),
+            "climb":       sf(data.get("vfr_hud", {}).get("climb", float("nan")), 1),
+        },
+        "battery": {
+            "voltage":   sf(data.get("battery", {}).get("voltage", float("nan")), 2),
+            "current":   sf(data.get("battery", {}).get("current", float("nan")), 1),
+            "remaining": data.get("battery", {}).get("remaining", -1),
+        },
+        "nav": {
+            "wp_num":         data.get("nav", {}).get("wp_num", 0),
+            "wp_dist":        sf(data.get("nav", {}).get("wp_dist", float("nan")), 1),
+            "xtrack_error":   sf(data.get("nav", {}).get("xtrack_error", float("nan")), 1),
+            "nav_bearing":    sf(data.get("nav", {}).get("nav_bearing", float("nan")), 1),
+            "target_bearing": sf(data.get("nav", {}).get("target_bearing", float("nan")), 1),
+        },
+        "vibration": {
+            "x": sf(data.get("vibration", {}).get("x", float("nan")), 3),
+            "y": sf(data.get("vibration", {}).get("y", float("nan")), 3),
+            "z": sf(data.get("vibration", {}).get("z", float("nan")), 3),
+        },
     }
     try:
         tmp = STATUS_FILE + ".tmp"
@@ -356,6 +427,8 @@ try:
     # Persistent state for latest MAVLink messages
     gps_lat = gps_lon = gps_alt = float("nan")
     gps_fix_type = 0
+    gps_sats = 0
+    gps_hdop = float("nan")
     ekf_lat = ekf_lon = ekf_alt = float("nan")
     roll = pitch = yaw = float("nan")
     is_armed = False
@@ -366,6 +439,32 @@ try:
     ekf_pos_var = float("nan")
     ekf_const_pos = False
     ekf_source = "unknown"  # "gps", "extpos", "unknown"
+
+    # VFR_HUD flight instruments
+    airspeed = groundspeed = float("nan")
+    heading_vfr = 0
+    throttle = 0
+    baro_alt = float("nan")
+    climb_rate = float("nan")
+
+    # Battery (SYS_STATUS)
+    battery_voltage = float("nan")  # Volts
+    battery_current = float("nan")  # Amps
+    battery_remaining = -1           # Percent (-1 = unknown)
+
+    # Navigation (MISSION_CURRENT + NAV_CONTROLLER_OUTPUT)
+    current_wp_seq = 0
+    wp_dist = float("nan")
+    xtrack_error = float("nan")
+    nav_bearing = float("nan")
+    target_bearing = float("nan")
+
+    # Vibration
+    vibe_x = vibe_y = vibe_z = float("nan")
+
+    # Flight mode
+    custom_mode = 0
+    vehicle_type = 0  # MAV_TYPE from heartbeat
 
     # ACK tracking (rolling window)
     ack_history = deque(maxlen=20)  # True=accepted, False=rejected
@@ -416,7 +515,9 @@ try:
                 msg = mav.recv_match(
                     type=["GPS_RAW_INT", "GLOBAL_POSITION_INT", "ATTITUDE",
                           "HEARTBEAT", "EKF_STATUS_REPORT", "STATUSTEXT",
-                          "COMMAND_ACK"],
+                          "COMMAND_ACK", "VFR_HUD", "SYS_STATUS",
+                          "MISSION_CURRENT", "NAV_CONTROLLER_OUTPUT",
+                          "VIBRATION"],
                     blocking=False
                 )
                 if msg is None:
@@ -454,6 +555,8 @@ try:
                     gps_lon = msg.lon / 1e7
                     gps_alt = msg.alt / 1000.0
                     gps_fix_type = msg.fix_type
+                    gps_sats = msg.satellites_visible
+                    gps_hdop = msg.eph / 100.0 if msg.eph != 65535 else float("nan")
                 elif msg_type == "GLOBAL_POSITION_INT":
                     ekf_lat = msg.lat / 1e7
                     ekf_lon = msg.lon / 1e7
@@ -465,12 +568,36 @@ try:
                     yaw = math.degrees(msg.yaw)
                 elif msg_type == "HEARTBEAT":
                     is_armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                    custom_mode = msg.custom_mode
+                    vehicle_type = msg.type
                 elif msg_type == "EKF_STATUS_REPORT":
                     ekf_flags = msg.flags
                     ekf_pos_var = msg.pos_horiz_variance
                     ekf_const_pos = bool(ekf_flags & 128)
                     if ekf_const_pos and ekf_source == "extpos":
                         print("!! WARNING: EKF in const_pos_mode while we are active source !!")
+                elif msg_type == "VFR_HUD":
+                    airspeed = msg.airspeed
+                    groundspeed = msg.groundspeed
+                    heading_vfr = msg.heading
+                    throttle = msg.throttle
+                    baro_alt = msg.alt
+                    climb_rate = msg.climb
+                elif msg_type == "SYS_STATUS":
+                    battery_voltage = msg.voltage_battery / 1000.0 if msg.voltage_battery != 65535 else float("nan")
+                    battery_current = msg.current_battery / 100.0 if msg.current_battery != -1 else float("nan")
+                    battery_remaining = msg.battery_remaining
+                elif msg_type == "MISSION_CURRENT":
+                    current_wp_seq = msg.seq
+                elif msg_type == "NAV_CONTROLLER_OUTPUT":
+                    nav_bearing = msg.nav_bearing
+                    target_bearing = msg.target_bearing
+                    wp_dist = msg.wp_dist
+                    xtrack_error = msg.xtrack_error
+                elif msg_type == "VIBRATION":
+                    vibe_x = msg.vibration_x
+                    vibe_y = msg.vibration_y
+                    vibe_z = msg.vibration_z
 
             # ---- Read Starlink ----
             loc = starlink_grpc.get_location(context=starlink_context)
@@ -605,6 +732,7 @@ try:
                 "star_unc_1sigma": star_unc_1sigma,  "star_unc_99":    star_unc_99,
                 "gps_lat":         gps_lat,          "gps_lon":        gps_lon,
                 "gps_alt":         gps_alt,
+                "gps_sats":        gps_sats,          "gps_hdop":      gps_hdop,
                 "ekf_lat":         ekf_lat,          "ekf_lon":        ekf_lon,
                 "ekf_alt":         ekf_alt,
                 "ekf_const_pos":   ekf_const_pos,    "ekf_pos_var":    ekf_pos_var,
@@ -623,6 +751,29 @@ try:
                 "position_age":    position_age,
                 "ekf_source":      ekf_source,
                 "ack_accept_rate": ack_accept_rate,
+                # HUD telemetry (v1.1)
+                "vfr_hud": {
+                    "airspeed":    airspeed,
+                    "groundspeed": groundspeed,
+                    "heading":     heading_vfr,
+                    "throttle":    throttle,
+                    "alt":         baro_alt,
+                    "climb":       climb_rate,
+                },
+                "battery": {
+                    "voltage":   battery_voltage,
+                    "current":   battery_current,
+                    "remaining": battery_remaining,
+                },
+                "nav": {
+                    "wp_num":         current_wp_seq,
+                    "wp_dist":        wp_dist,
+                    "xtrack_error":   xtrack_error,
+                    "nav_bearing":    nav_bearing,
+                    "target_bearing": target_bearing,
+                },
+                "vibration": {"x": vibe_x, "y": vibe_y, "z": vibe_z},
+                "flight_mode": get_flight_mode_name(vehicle_type, custom_mode),
             })
 
         time.sleep(0.2)

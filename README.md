@@ -137,6 +137,12 @@ All settings are in `/etc/starnav.conf` (INI format).
 | `csv_enabled` | `true` | Enable/disable CSV flight logging |
 | `max_log_size_mb` | `100` | Max total CSV folder size (oldest logs auto-deleted) |
 
+### [hud]
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `update_rate_hz` | `2` | HUD telemetry update rate (1, 2, 5, or 10 Hz). Higher = more bandwidth. |
+
 ### [paths]
 
 | Key | Default | Description |
@@ -153,8 +159,9 @@ React 19 SPA served at `http://<router-ip>:8082`. Built with Vite + Tailwind CSS
 | Tab | Description |
 |-----|-------------|
 | **Map** (default) | Full-viewport satellite map with aircraft position, Starlink position, GPS marker, uncertainty circle, 60s position trail, and legend |
+| **HUD** | 3D cockpit view with Google Photorealistic 3D Tiles (CesiumJS), Mission Planner-style flight instruments overlay, lockable/unlockable camera |
 | **Dashboard** | Status cards (Process, Starlink Position, Aircraft, EKF Health) in 2x2 grid, live SSE debug log, StarNav CSV log browser |
-| **Settings** | Config editor (target system, MAVLink connection, GPS mode, thresholds, rates) with Zod validation, save & restart |
+| **Settings** | Config editor (target system, MAVLink connection, GPS mode, thresholds, rates, HUD update rate) with Zod validation, save & restart |
 | **Help** | ArduPilot parameter setup, configuration reference, troubleshooting |
 
 ### Features
@@ -162,8 +169,22 @@ React 19 SPA served at `http://<router-ip>:8082`. Built with Vite + Tailwind CSS
 - **Startup banner** — shows connection state during heartbeat wait (amber pulsing indicator with elapsed time)
 - **SSE status streaming** with polling fallback for RVR link budget optimization
 - **Service controls** — Start, Stop, Restart buttons in header
+- **Link stats indicator** — real-time packets/sec and kbps in header bar with color coding (green/amber/red) for RVR bandwidth awareness
 - **Log viewer** — real-time SSE stream with pause, clear, color-coded levels
 - **StarNav log manager** — browse, preview (last 50 rows), and download CSV logs without SSH
+
+### HUD View
+
+The HUD tab provides a synthetic vision display with real 3D terrain, similar to Google Earth:
+
+- **3D terrain** — Google Photorealistic 3D Tiles via CesiumJS (real photogrammetry meshes with buildings, trees, terrain)
+- **Flight instruments** — pitch ladder, roll arc, heading tape, airspeed tape, altitude tape, climb rate bar
+- **Status bar** — armed state, flight mode, GPS status, EKF health, battery, vibration, throttle, waypoint info
+- **Camera modes** — locked (follows aircraft attitude) or unlocked (free-look, like looking out a window)
+- **120° FOV** — wide cockpit view for maximum situational awareness
+- **Smooth animation** — 2Hz data interpolated to 60fps
+- **Tab suspension** — rendering and tile fetching stop completely when HUD tab is not active (zero bandwidth)
+- **Configurable update rate** — 1/2/5/10 Hz (Settings > HUD)
 
 ### Web UI Development
 
@@ -203,13 +224,18 @@ npm run build        # production build to ../www/
 
 | Message | Description |
 |---------|-------------|
-| `HEARTBEAT` | Autopilot connection + armed state |
-| `GPS_RAW_INT` | Raw GPS position for comparison |
+| `HEARTBEAT` | Autopilot connection, armed state, flight mode |
+| `GPS_RAW_INT` | Raw GPS position, fix type, satellite count, HDOP |
 | `GLOBAL_POSITION_INT` | EKF position estimate |
 | `ATTITUDE` | Roll/pitch/yaw |
 | `EKF_STATUS_REPORT` | Filter health, variance, const_pos_mode |
 | `STATUSTEXT` | ExtPos rejection/glitch events, source switches |
 | `COMMAND_ACK` | Position estimate acceptance/rejection |
+| `VFR_HUD` | Airspeed, groundspeed, heading, throttle, baro altitude, climb rate |
+| `SYS_STATUS` | Battery voltage, current, remaining percentage |
+| `MISSION_CURRENT` | Current waypoint number |
+| `NAV_CONTROLLER_OUTPUT` | Waypoint distance, crosstrack error, nav/target bearing |
+| `VIBRATION` | Vibration levels (x/y/z) |
 
 ## Logs and Diagnostics
 
@@ -253,8 +279,9 @@ install.sh                  Installer + uninstaller (wget one-liner supported)
 www-next/                   React UI source (Vite + Tailwind + TypeScript)
   src/
     api/                    API client and TypeScript types
-    components/             React components (Map, Dashboard, Settings, Help)
-    hooks/                  useStatus (SSE+polling), useLogStream (SSE)
+    components/             React components (Map, HUD, Dashboard, Settings, Help)
+      hud/                  HUD sub-components (CesiumScene, PitchLadder, tapes, StatusBar)
+    hooks/                  useStatus (SSE+polling), useLogStream (SSE), useLinkStats
     lib/                    Formatting utils, Zod schemas
 www/                        Built output (committed, served by uhttpd)
   index.html                SPA entry point
@@ -280,4 +307,6 @@ starlink-grpc-tools/        Starlink gRPC client (submodule)
 
 **Python:** `pymavlink`, `grpcio`, `protobuf`, `yagrc`, `typing-extensions`
 
-All installed automatically by `install.sh`.
+**Frontend (npm):** `react`, `react-dom`, `leaflet`, `react-leaflet`, `cesium`, `resium`, `@tanstack/react-query`, `zod`, `lucide-react`, `sonner`
+
+All backend dependencies installed automatically by `install.sh`. Frontend built via `npm run build` in `www-next/`.

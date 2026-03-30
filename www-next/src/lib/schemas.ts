@@ -37,12 +37,17 @@ export const loggingSection = z.object({
   max_log_size_mb: positiveInt,
 });
 
+export const hudSection = z.object({
+  update_rate_hz: z.coerce.number().min(1).max(10),
+});
+
 export const configSchema = z.object({
   starlink: starlinkSection,
   mavlink: mavlinkSection,
   thresholds: thresholdsSection,
   rates: ratesSection,
   logging: loggingSection,
+  hud: hudSection.optional(),
 });
 
 export type ValidatedConfig = z.infer<typeof configSchema>;

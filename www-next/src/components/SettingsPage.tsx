@@ -123,6 +123,7 @@ export default function SettingsPage() {
         thresholds: { uncertainty_limit: 200, min_stable_time: 3, accuracy_jump_threshold: 1.5, staleness_timeout: 3 },
         rates: { send_rate_active: 0.5, send_rate_passive: 1.0, send_rate_degraded: 2.0 },
         logging: { csv_enabled: true, max_log_size_mb: 100 },
+        hud: { update_rate_hz: 2 },
       };
       const safe: ConfigData = {
         starlink: { ...defaults.starlink, ...data.starlink },
@@ -130,6 +131,7 @@ export default function SettingsPage() {
         thresholds: { ...defaults.thresholds, ...data.thresholds },
         rates: { ...defaults.rates, ...data.rates },
         logging: { ...defaults.logging, ...data.logging },
+        hud: { ...defaults.hud, ...data.hud },
       };
       setConfig(safe);
       setOriginal(safe);
@@ -374,6 +376,25 @@ export default function SettingsPage() {
                   onChange={(v) => update("logging", "max_log_size_mb", v)}
                   min={1}
                 />
+              </FieldRow>
+            </div>
+
+            {/* HUD */}
+            <div>
+              <h3 className="text-xs uppercase tracking-wider text-text-secondary font-semibold mb-1">
+                HUD
+              </h3>
+              <FieldRow label="Update Rate (Hz)">
+                <select
+                  value={config.hud?.update_rate_hz ?? 2}
+                  onChange={(e) => update("hud", "update_rate_hz", Number(e.target.value))}
+                  className="bg-bg-primary border border-border rounded px-2 py-1 text-sm text-text-primary"
+                >
+                  <option value={1}>1 Hz</option>
+                  <option value={2}>2 Hz (default)</option>
+                  <option value={5}>5 Hz</option>
+                  <option value={10}>10 Hz</option>
+                </select>
               </FieldRow>
             </div>
           </div>

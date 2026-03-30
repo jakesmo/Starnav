@@ -55,13 +55,20 @@ export default function HelpPage() {
           <p>
             StarNav bridges Starlink dish location data to ArduPilot via MAVLink.
             It reads the dish's gRPC position API, applies quality checks, and
-            sends <Code>GPS_INPUT</Code> messages to the flight controller's EKF
-            as an external position source.
+            sends <Code>COMMAND_INT 43003</Code> external position estimate
+            messages to the flight controller's EKF.
           </p>
           <p>
             This enables GPS-denied navigation using Starlink's internal position
-            solution with sub-5m accuracy. The system can operate as the primary
-            or secondary EKF source alongside a traditional GNSS receiver.
+            solution. The system can operate as the primary or secondary EKF
+            source alongside a traditional GNSS receiver.
+          </p>
+          <p>
+            The <strong>HUD tab</strong> provides a 3D cockpit view using
+            Google Photorealistic 3D Tiles with Mission Planner-style flight
+            instruments. Camera can be locked to aircraft attitude or unlocked
+            for free-look. All terrain rendering pauses when the tab is not
+            active to conserve bandwidth.
           </p>
         </div>
       </Card>
@@ -113,8 +120,50 @@ export default function HelpPage() {
             ["rates.poll_interval", "1", "Dish position poll interval (seconds)"],
             ["logging.csv_enabled", "true", "Enable CSV flight logging"],
             ["logging.max_log_size_mb", "50", "Max CSV log file size"],
+            ["hud.update_rate_hz", "2", "HUD data update rate (1/2/5/10 Hz)"],
           ]}
         />
+      </Card>
+
+      {/* HUD View */}
+      <Card title="HUD View">
+        <div className="text-sm text-text-secondary space-y-2">
+          <p>
+            The HUD tab shows a synthetic vision display with real 3D terrain
+            from Google Photorealistic 3D Tiles, overlaid with flight
+            instruments matching Mission Planner's default layout.
+          </p>
+          <p>
+            <strong>Camera modes:</strong> Click "Unlock Camera" to look around
+            freely (like looking out a cockpit window). The HUD overlay stays
+            fixed to the aircraft's forward direction — it will slide off-screen
+            when looking sideways. Click "Lock Camera" to snap back.
+          </p>
+          <p>
+            <strong>Bandwidth:</strong> The HUD streams 3D tile data over the
+            network. Monitor the link stats indicator in the header bar
+            (packets/sec and kbps). All rendering and tile fetching stops
+            automatically when you switch to another tab.
+          </p>
+          <p>
+            <strong>Update rate:</strong> Configurable in Settings &gt; HUD.
+            Default is 2 Hz. Higher rates give smoother data but use more
+            bandwidth. Visual animation is always 60fps via interpolation
+            regardless of the data rate.
+          </p>
+        </div>
+        <div className="mt-3">
+          <Table
+            headers={["Instrument", "Data Source", "Position"]}
+            rows={[
+              ["Pitch ladder + roll arc", "ATTITUDE (roll/pitch)", "Center"],
+              ["Heading tape", "VFR_HUD heading", "Top"],
+              ["Airspeed tape", "VFR_HUD airspeed", "Left"],
+              ["Altitude tape + climb rate", "VFR_HUD alt/climb", "Right"],
+              ["Status bar", "Multiple MAVLink messages", "Bottom"],
+            ]}
+          />
+        </div>
       </Card>
 
       {/* Troubleshooting */}

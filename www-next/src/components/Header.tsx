@@ -3,26 +3,36 @@ import { Play, Square, RotateCw } from "lucide-react";
 import { executeCommand } from "../api/client";
 import Button from "./ui/Button";
 import { cn } from "../lib/utils";
+import type { LinkStats } from "../hooks/useLinkStats";
 
-export type AppTab = "dashboard" | "map" | "settings" | "help";
+export type AppTab = "dashboard" | "map" | "hud" | "settings" | "help";
 
 interface HeaderProps {
   activeTab: AppTab;
   onTabChange: (tab: AppTab) => void;
   connected: boolean;
+  linkStats?: LinkStats;
 }
 
 const tabs: { id: AppTab; label: string }[] = [
   { id: "map", label: "Map" },
+  { id: "hud", label: "HUD" },
   { id: "dashboard", label: "Dashboard" },
   { id: "settings", label: "Settings" },
   { id: "help", label: "Help" },
 ];
 
+function linkStatsColor(kbps: number): string {
+  if (kbps > 500) return "text-red-400";
+  if (kbps > 100) return "text-yellow-400";
+  return "text-text-secondary";
+}
+
 export default function Header({
   activeTab,
   onTabChange,
   connected,
+  linkStats,
 }: HeaderProps) {
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -57,7 +67,18 @@ export default function Header({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-3">
+            {/* Link stats indicator */}
+            {linkStats && (
+              <span className={cn(
+                "text-xs font-mono hidden md:inline",
+                linkStatsColor(linkStats.kbps),
+              )}>
+                {linkStats.packetsPerSec} pkt/s &middot; {linkStats.kbps} kbps
+              </span>
+            )}
+
+            <div className="flex items-center gap-1.5">
             <Button
               variant="primary"
               onClick={() => handleCommand("start")}
@@ -85,6 +106,7 @@ export default function Header({
               <RotateCw size={13} />
               <span className="hidden md:inline">Restart</span>
             </Button>
+            </div>
           </div>
         </div>
 

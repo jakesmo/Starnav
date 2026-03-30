@@ -1,5 +1,34 @@
 // StarNav API response types
 
+export interface VfrHud {
+  airspeed: number | null;
+  groundspeed: number | null;
+  heading: number | null;
+  throttle: number | null;
+  alt: number | null;
+  climb: number | null;
+}
+
+export interface Battery {
+  voltage: number | null;
+  current: number | null;
+  remaining: number | null;
+}
+
+export interface Nav {
+  wp_num: number | null;
+  wp_dist: number | null;
+  xtrack_error: number | null;
+  nav_bearing: number | null;
+  target_bearing: number | null;
+}
+
+export interface Vibration {
+  x: number | null;
+  y: number | null;
+  z: number | null;
+}
+
 export interface PositionData {
   timestamp: string;
   startup_phase?: string | null;
@@ -44,6 +73,14 @@ export interface PositionData {
   position_age: number | null;
   ekf_source: string | null;
   ack_accept_rate: number | null;
+  // HUD telemetry (v1.1)
+  vfr_hud?: VfrHud;
+  battery?: Battery;
+  nav?: Nav;
+  vibration?: Vibration;
+  flight_mode?: string | null;
+  gps_sats?: number | null;
+  gps_hdop?: number | null;
 }
 
 export interface StatusResponse {
@@ -86,6 +123,9 @@ export interface ConfigData {
   logging: {
     csv_enabled: boolean;
     max_log_size_mb: number;
+  };
+  hud: {
+    update_rate_hz: number;
   };
 }
 
