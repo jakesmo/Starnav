@@ -33,7 +33,8 @@ do_read() {
         if (!first_section) printf "},"
         first_section = 0
         first_key = 1
-        gsub(/[\[\]]/, "")
+        gsub(/\[/, "")
+        gsub(/\]/, "")
         gsub(/^[[:space:]]+|[[:space:]]+$/, "")
         printf "\"%s\":{", $0
         next
