@@ -174,9 +174,12 @@ install_system_packages() {
         opkg install "$pkg_dir"/*.ipk --force-depends \
             2>&1 | grep -vE "has no valid architecture|Configuring|already installed|Updating database|Database update" || true
 
-        # Check if critical packages actually installed
+        # Check if critical packages actually work (not just present)
         if ! command -v python3 >/dev/null 2>&1 || ! command -v git >/dev/null 2>&1; then
             warn "Bundled packages incomplete for this device -- trying opkg feeds"
+            need_feeds=1
+        elif ! python3 -c "import urllib" 2>/dev/null; then
+            warn "python3 is missing core modules -- trying opkg feeds"
             need_feeds=1
         fi
     else
