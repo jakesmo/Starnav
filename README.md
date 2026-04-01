@@ -181,11 +181,15 @@ React 19 SPA served at `http://<router-ip>:8082`. Built with Vite + Tailwind CSS
 The HUD tab provides a synthetic vision display with real 3D terrain, similar to Google Earth:
 
 - **3D terrain** — Google Photorealistic 3D Tiles via CesiumJS (real photogrammetry meshes with buildings, trees, terrain)
-- **Flight instruments** — pitch ladder, roll arc, heading tape, airspeed tape, altitude tape, climb rate bar
-- **Status bar** — armed state, flight mode, GPS status, EKF health, battery, vibration, throttle, waypoint info
-- **Camera modes** — locked (follows aircraft attitude) or unlocked (free-look, like looking out a window)
+- **Flight instruments** — pitch ladder, roll arc, heading tape, airspeed tape, altitude tape, climb rate bar (all 60fps rAF-driven)
+- **Status bar** — armed state, flight mode, position source (EXTPOS/GPS/NONE), EKF aiding state, GPS sats/HDOP, battery, per-axis vibration (X/Y/Z), throttle, waypoint info
+- **Camera modes** — first-person (locked to aircraft), third-person (orbit/zoom with 3D aircraft model), free-look (look around from cockpit)
+- **Aircraft 3D model** — SolidWorks CAD export, Draco-compressed GLB (4MB), visible in third-person
 - **120° FOV** — wide cockpit view for maximum situational awareness
-- **Smooth animation** — 2Hz data interpolated to 60fps
+- **10Hz attitude stream** — dedicated SSE endpoint with cubic ease-out smoothing to 60fps, no extrapolation
+- **Live Starlink satellites** — labeled dots for all visible Starlink sats (Star Walk 2 style), link lines in third-person showing active/inactive connections
+- **Live wind & temperature** — Open-Meteo GFS data at aircraft altitude, wind arrow + speed + temp
+- **UTC clock** — millisecond-precision, rAF-driven (visibly ticking every frame)
 - **Tab suspension** — rendering and tile fetching stop completely when HUD tab is not active (zero bandwidth)
 - **Configurable update rate** — 1/2/5/10 Hz (Settings > HUD)
 
@@ -212,6 +216,10 @@ npm run build        # production build to ../www/
 | `/cgi-bin/logs-csv.cgi` | GET | Log list, preview, download (`?action=list\|download\|tail`) |
 | `/cgi-bin/version.cgi` | GET | Branch-aware git version + update check (cached 60s) |
 | `/cgi-bin/update.cgi` | GET | SSE update progress stream (shallow fetch + hard reset) |
+| `/cgi-bin/attitude-stream.cgi` | GET | SSE high-rate attitude stream (10Hz) for HUD |
+| `/cgi-bin/tle.cgi` | GET | Cached Starlink TLE data (JSON, refreshed every 6h) |
+| `/cgi-bin/weather.cgi` | GET | Wind/temp at altitude (`?lat=X&lon=Y&alt=Z`), 5-min cache |
+| `/cgi-bin/wind-inject.cgi` | GET | Same as weather.cgi but in MAVLink WIND_COV format |
 
 #### api.cgi Actions
 
@@ -377,7 +385,7 @@ www-next/                   React UI source (Vite + Tailwind + TypeScript)
       ui/                   Reusable UI (Button, Card, Badge, Modal)
       UpdateBanner.tsx       Persistent update notification banner
       UpdateModal.tsx        Branch-aware update execution modal
-    hooks/                  useStatus (SSE+polling), useLogStream (SSE), useLinkStats
+    hooks/                  useStatus, useLogStream, useAttitude, useLinkStats, useSatellites, useWeather
     lib/                    Formatting utils, Zod schemas
 www/                        Built output (committed, served by uhttpd)
   index.html                SPA entry point
@@ -403,6 +411,6 @@ starlink-grpc-tools/        Starlink gRPC client (submodule)
 
 **Python:** `pymavlink`, `grpcio`, `protobuf`, `yagrc`, `typing-extensions`
 
-**Frontend (npm):** `react`, `react-dom`, `leaflet`, `react-leaflet`, `cesium`, `resium`, `@tanstack/react-query`, `zod`, `lucide-react`, `sonner`
+**Frontend (npm):** `react`, `react-dom`, `leaflet`, `react-leaflet`, `cesium`, `resium`, `satellite.js`, `@tanstack/react-query`, `zod`, `lucide-react`, `sonner`
 
 All backend dependencies installed automatically by `install.sh`. Frontend built via `npm run build` in `www-next/`.

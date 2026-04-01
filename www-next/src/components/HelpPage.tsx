@@ -134,10 +134,23 @@ export default function HelpPage() {
             instruments matching Mission Planner's default layout.
           </p>
           <p>
-            <strong>Camera modes:</strong> Click "Unlock Camera" to look around
-            freely (like looking out a cockpit window). The HUD overlay stays
-            fixed to the aircraft's forward direction — it will slide off-screen
-            when looking sideways. Click "Lock Camera" to snap back.
+            <strong>Camera modes (press V to cycle):</strong>
+          </p>
+          <ul className="list-disc list-inside space-y-1 ml-2">
+            <li><strong>First-person:</strong> Camera locked to aircraft attitude with full HUD instruments.</li>
+            <li><strong>Third-person:</strong> Orbiting camera with 3D aircraft model visible. Mouse drag to orbit, scroll to zoom. Compact data readout in corner.</li>
+            <li><strong>Free-look:</strong> Look around freely from cockpit position. HUD stays in aircraft forward direction.</li>
+          </ul>
+          <p>
+            <strong>Starlink satellites:</strong> All visible Starlink sats shown as
+            labeled dots (like Star Walk 2). In third-person view, link lines are drawn
+            from the aircraft to each satellite — the active link (most aligned with dish)
+            is highlighted cyan.
+          </p>
+          <p>
+            <strong>Wind data:</strong> Live wind speed, direction, and temperature at
+            aircraft altitude from Open-Meteo GFS model. Wind arrow + readout shown in
+            top-left of HUD. Data refreshes every 5 minutes.
           </p>
           <p>
             <strong>Bandwidth:</strong> The HUD streams 3D tile data over the
@@ -146,10 +159,9 @@ export default function HelpPage() {
             automatically when you switch to another tab.
           </p>
           <p>
-            <strong>Update rate:</strong> Configurable in Settings &gt; HUD.
-            Default is 2 Hz. Higher rates give smoother data but use more
-            bandwidth. Visual animation is always 60fps via interpolation
-            regardless of the data rate.
+            <strong>Status bar indicators:</strong> SRC shows position source
+            (EXTPOS/GPS/NONE). AID shows EKF aiding mode (ABSOLUTE/RELATIVE/NONE).
+            VIBE shows per-axis vibration (X/Y/Z) with independent color coding.
           </p>
         </div>
         <div className="mt-3">
