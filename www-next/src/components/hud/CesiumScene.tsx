@@ -14,6 +14,8 @@ import {
   HeadingPitchRoll,
   Transforms,
   HeadingPitchRange,
+  Quaternion,
+  Matrix3,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { AttitudeStore } from "../../hooks/useAttitude";
@@ -105,13 +107,24 @@ export default function CesiumScene({
     });
 
     // Aircraft 3D model entity (visible in third-person only)
+    // Model correction: SolidWorks export points nose ~100° up. Apply pitch-down correction.
+    const modelCorrectionHPR = new HeadingPitchRoll(0, CesiumMath.toRadians(-100), 0);
+    const modelCorrectionQ = Quaternion.fromRotationMatrix(
+      Matrix3.fromHeadingPitchRoll(modelCorrectionHPR),
+    );
+
     const posCallback = new CallbackProperty(() => currentPosition.current, false);
     const oriCallback = new CallbackProperty(() => {
-      return Transforms.headingPitchRollQuaternion(
+      const attitudeQ = Transforms.headingPitchRollQuaternion(
         currentPosition.current,
         currentHPR.current,
       );
+      // Compose: attitude * model_correction
+      return Quaternion.multiply(attitudeQ, modelCorrectionQ, new Quaternion());
     }, false);
+
+    // Model scale: bounding box wingspan is 3.936m, real wingspan is 4.2m
+    const MODEL_SCALE = 4.2 / 3.936;
 
     const entity = viewer.entities.add({
       position: posCallback as any,
@@ -119,8 +132,8 @@ export default function CesiumScene({
       model: {
         uri: "/models/aircraft.glb",
         minimumPixelSize: 64,
-        maximumScale: 1.0,
-        show: false, // toggled by camera mode
+        scale: MODEL_SCALE,
+        show: false,
       },
     });
     entityRef.current = entity;
@@ -183,11 +196,13 @@ export default function CesiumScene({
     const ctrl = viewer.scene.screenSpaceCameraController;
 
     if (cameraMode === "third-person") {
-      // Show model, enable orbit/zoom, track entity
+      // Show model, enable orbit/zoom only (no translate/pan), lock to entity
       if (entity.model) entity.model.show = new CallbackProperty(() => true, true) as any;
-      ctrl.enableRotate = true;
-      ctrl.enableZoom = true;
-      ctrl.enableTilt = true;
+      ctrl.enableRotate = true;   // orbit around entity
+      ctrl.enableZoom = true;     // zoom in/out
+      ctrl.enableTilt = true;     // tilt camera angle
+      ctrl.enableTranslate = false; // NO pan — entity stays centered
+      ctrl.enableLook = false;      // NO free-look
       viewer.trackedEntity = entity;
       viewer.flyTo(entity, {
         offset: new HeadingPitchRange(0, CesiumMath.toRadians(-30), 100),
@@ -268,7 +283,7 @@ export default function CesiumScene({
 
   const allowPointerEvents = cameraMode !== "first-person";
 
-  // Get latest smoothed position for satellite layer
+  // Get latest smoothed position for satellite layer (guard against destroyed viewer)
   const store = attitudeStore.current;
   const acPos = store
     ? { lat: store.smoothed.lat, lon: store.smoothed.lon, alt: store.smoothed.alt }

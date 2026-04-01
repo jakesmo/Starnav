@@ -44,11 +44,14 @@ export default function SatelliteLayer({
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas as HTMLCanvasElement);
 
     handler.setInputAction((movement: { endPosition: Cartesian2 }) => {
+      if (viewer.isDestroyed()) return;
       const picked = viewer.scene.pick(movement.endPosition);
+      const pickedEntity = defined(picked) && defined(picked.id) && picked.id instanceof Entity
+        ? picked.id : null;
       // Hide all labels, show only hovered
       for (const entity of entitiesRef.current) {
         if (entity.label) {
-          entity.label.show = defined(picked) && picked.id === entity ? true as any : false as any;
+          (entity.label.show as any) = pickedEntity === entity;
         }
       }
     }, ScreenSpaceEventType.MOUSE_MOVE);
@@ -62,7 +65,7 @@ export default function SatelliteLayer({
     return () => {
       handler.destroy();
       handlerRef.current = null;
-      if (linesRef.current) {
+      if (linesRef.current && !viewer.isDestroyed()) {
         viewer.scene.primitives.remove(linesRef.current);
         linesRef.current = null;
       }
@@ -71,7 +74,7 @@ export default function SatelliteLayer({
 
   // Update satellite entities when data changes
   useEffect(() => {
-    if (!viewer) return;
+    if (!viewer || viewer.isDestroyed()) return;
 
     // Remove old entities
     for (const entity of entitiesRef.current) {
@@ -100,9 +103,10 @@ export default function SatelliteLayer({
       const entity = viewer.entities.add({
         position: satPos,
         point: {
-          pixelSize: isActive ? 5 : 3,
+          pixelSize: isActive ? 6 : 4,
           color: isActive ? SAT_ACTIVE_COLOR : SAT_COLOR,
-          scaleByDistance: new NearFarScalar(1e6, 1.0, 1e8, 0.3),
+          scaleByDistance: new NearFarScalar(1e6, 1.0, 1e8, 0.4),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
           text: shortName,

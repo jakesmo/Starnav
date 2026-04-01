@@ -150,8 +150,8 @@ export function useSatellites(
             lat, lon, altKm * 1000,
           );
 
-          // Only include satellites above horizon
-          if (angle.elevation <= 0) continue;
+          // Hide satellites below 10° elevation (near horizon, visually behind earth)
+          if (angle.elevation < 10) continue;
 
           // Compute dish alignment: dot product of dish normal with sat direction in ENU
           const elRad = angle.elevation * toRad;
