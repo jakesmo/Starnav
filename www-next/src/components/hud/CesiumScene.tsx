@@ -8,31 +8,37 @@ import {
   PerspectiveFrustum,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
+  Cesium3DTileset,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import type { InterpolatedState } from "./useInterpolation";
+import type { AttitudeStore } from "../../hooks/useAttitude";
+import { smooth } from "../../hooks/useAttitude";
 
-// Cesium Ion access token (provided by user)
 Ion.defaultAccessToken =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiIzZWRjMWYxOS0xZDExLTQyYWQtYjA5OS05ZjFjNzIyMjRjZGMiLCJpZCI6NDExNDM0LCJpYXQiOjE3NzQ4OTM0NDR9.cZWL8MxEOKxh7Pn9iG2THLaZG5Dk1E4tWlyC11iI-5U";
 
 interface CesiumSceneProps {
-  interpolated: InterpolatedState;
+  attitudeStore: React.RefObject<AttitudeStore | null>;
   isActive: boolean;
   cameraLocked: boolean;
 }
 
 export default function CesiumScene({
-  interpolated,
+  attitudeStore,
   isActive,
   cameraLocked,
 }: CesiumSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
+  const tilesetRef = useRef<Cesium3DTileset | null>(null);
   const userHeadingOffset = useRef(0);
   const userPitchOffset = useRef(0);
   const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
-  const dragState = useRef<{ startX: number; startY: number; startH: number; startP: number } | null>(null);
+  const dragState = useRef<{
+    startX: number; startY: number; startH: number; startP: number;
+  } | null>(null);
+  const cameraLockedRef = useRef(cameraLocked);
+  cameraLockedRef.current = cameraLocked;
 
   // Initialize Cesium Viewer once
   useEffect(() => {
@@ -49,30 +55,66 @@ export default function CesiumScene({
       fullscreenButton: false,
       infoBox: false,
       selectionIndicator: false,
-      creditContainer: document.createElement("div"), // hide credits
+      creditContainer: document.createElement("div"),
     });
 
-    // Set 120deg FOV
+    // 120° FOV
     const frustum = viewer.camera.frustum as PerspectiveFrustum;
     frustum.fov = CesiumMath.toRadians(120);
 
-    // Enable atmosphere/fog
+    // Atmosphere
     viewer.scene.fog.enabled = true;
     viewer.scene.fog.density = 0.0003;
     viewer.scene.globe.enableLighting = true;
 
-    // Disable default camera input (we control the camera)
-    viewer.scene.screenSpaceCameraController.enableRotate = false;
-    viewer.scene.screenSpaceCameraController.enableTranslate = false;
-    viewer.scene.screenSpaceCameraController.enableZoom = false;
-    viewer.scene.screenSpaceCameraController.enableTilt = false;
-    viewer.scene.screenSpaceCameraController.enableLook = false;
+    // Disable default camera controls (we drive the camera)
+    const ctrl = viewer.scene.screenSpaceCameraController;
+    ctrl.enableRotate = false;
+    ctrl.enableTranslate = false;
+    ctrl.enableZoom = false;
+    ctrl.enableTilt = false;
+    ctrl.enableLook = false;
 
     // Load Google 3D Tiles
     createGooglePhotorealistic3DTileset().then((tileset) => {
       viewer.scene.primitives.add(tileset);
-      // Hide the base globe to avoid z-fighting
       viewer.scene.globe.show = false;
+      // Tune for stable tile loading
+      tileset.maximumScreenSpaceError = 8;
+      (tileset as any).maximumMemoryUsage = 256;
+      tileset.preloadFlightDestinations = true;
+      tilesetRef.current = tileset;
+
+      // Retry failed tiles
+      tileset.tileFailed.addEventListener(() => {
+        tileset.trimLoadedTiles();
+      });
+    });
+
+    // Camera update — runs INSIDE Cesium's render loop (no frame tearing)
+    viewer.scene.preRender.addEventListener(() => {
+      const store = attitudeStore.current;
+      if (!store) return;
+
+      const s = smooth(store);
+      if (s.lat === 0 && s.lon === 0) return;
+
+      const position = Cartesian3.fromDegrees(s.lon, s.lat, s.alt);
+
+      let heading = CesiumMath.toRadians(s.yaw);
+      let cameraPitch = CesiumMath.toRadians(s.pitch);
+      const cameraRoll = CesiumMath.toRadians(s.roll);
+
+      // Apply user offsets in free-look mode
+      if (!cameraLockedRef.current) {
+        heading += CesiumMath.toRadians(userHeadingOffset.current);
+        cameraPitch += CesiumMath.toRadians(userPitchOffset.current);
+      }
+
+      viewer.camera.setView({
+        destination: position,
+        orientation: { heading, pitch: cameraPitch, roll: cameraRoll },
+      });
     });
 
     viewerRef.current = viewer;
@@ -84,36 +126,45 @@ export default function CesiumScene({
       }
       viewer.destroy();
       viewerRef.current = null;
+      tilesetRef.current = null;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle unlocked camera mouse drag
+  // Handle free-look mouse drag
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
 
     if (!cameraLocked) {
-      // Set up mouse handlers for free-look
-      const handler = new ScreenSpaceEventHandler(viewer.scene.canvas as HTMLCanvasElement);
+      const handler = new ScreenSpaceEventHandler(
+        viewer.scene.canvas as HTMLCanvasElement,
+      );
 
-      handler.setInputAction((movement: { position: { x: number; y: number } }) => {
-        dragState.current = {
-          startX: movement.position.x,
-          startY: movement.position.y,
-          startH: userHeadingOffset.current,
-          startP: userPitchOffset.current,
-        };
-      }, ScreenSpaceEventType.LEFT_DOWN);
+      handler.setInputAction(
+        (movement: { position: { x: number; y: number } }) => {
+          dragState.current = {
+            startX: movement.position.x,
+            startY: movement.position.y,
+            startH: userHeadingOffset.current,
+            startP: userPitchOffset.current,
+          };
+        },
+        ScreenSpaceEventType.LEFT_DOWN,
+      );
 
-      handler.setInputAction((movement: { endPosition: { x: number; y: number } }) => {
-        if (!dragState.current) return;
-        const dx = movement.endPosition.x - dragState.current.startX;
-        const dy = movement.endPosition.y - dragState.current.startY;
-        userHeadingOffset.current = dragState.current.startH + dx * 0.3;
-        userPitchOffset.current = Math.max(-80, Math.min(80,
-          dragState.current.startP - dy * 0.3
-        ));
-      }, ScreenSpaceEventType.MOUSE_MOVE);
+      handler.setInputAction(
+        (movement: { endPosition: { x: number; y: number } }) => {
+          if (!dragState.current) return;
+          const dx = movement.endPosition.x - dragState.current.startX;
+          const dy = movement.endPosition.y - dragState.current.startY;
+          userHeadingOffset.current = dragState.current.startH + dx * 0.3;
+          userPitchOffset.current = Math.max(
+            -80,
+            Math.min(80, dragState.current.startP - dy * 0.3),
+          );
+        },
+        ScreenSpaceEventType.MOUSE_MOVE,
+      );
 
       handler.setInputAction(() => {
         dragState.current = null;
@@ -121,7 +172,6 @@ export default function CesiumScene({
 
       handlerRef.current = handler;
     } else {
-      // Reset offsets when locking camera
       userHeadingOffset.current = 0;
       userPitchOffset.current = 0;
       if (handlerRef.current) {
@@ -131,45 +181,15 @@ export default function CesiumScene({
     }
   }, [cameraLocked]);
 
-  // Update camera from interpolated telemetry on each render
-  useEffect(() => {
-    const viewer = viewerRef.current;
-    if (!viewer || !isActive) return;
-
-    const { lat, lon, alt, roll, pitch, yaw } = interpolated;
-    if (lat === 0 && lon === 0) return; // No valid position yet
-
-    const position = Cartesian3.fromDegrees(lon, lat, alt);
-
-    // Convert attitude to Cesium conventions
-    // yaw: degrees CW from north -> heading in radians
-    // pitch: degrees nose up -> negative in Cesium (looking down is negative)
-    // roll: degrees right wing down
-    let heading = CesiumMath.toRadians(yaw);
-    let cameraPitch = CesiumMath.toRadians(pitch);
-    const cameraRoll = CesiumMath.toRadians(roll);
-
-    // Apply user offsets when unlocked
-    if (!cameraLocked) {
-      heading += CesiumMath.toRadians(userHeadingOffset.current);
-      cameraPitch += CesiumMath.toRadians(userPitchOffset.current);
-    }
-
-    viewer.camera.setView({
-      destination: position,
-      orientation: {
-        heading: heading,
-        pitch: cameraPitch,
-        roll: cameraRoll,
-      },
-    });
-  });
-
   // Suspend/resume rendering
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
     viewer.useDefaultRenderLoop = isActive;
+    // Force tile re-evaluation on resume
+    if (isActive && tilesetRef.current) {
+      tilesetRef.current.trimLoadedTiles();
+    }
   }, [isActive]);
 
   return (

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import type { PositionData } from "../api/types";
+import { useAttitude } from "../hooks/useAttitude";
 import CesiumScene from "./hud/CesiumScene";
 import HudOverlay from "./hud/HudOverlay";
-import { useInterpolation } from "./hud/useInterpolation";
 
 interface HudViewProps {
   position: PositionData | null;
@@ -13,9 +13,9 @@ interface HudViewProps {
 function hasConnection(position: PositionData | null): boolean {
   if (!position) return false;
   if (position.startup_phase) return false;
-  // If attitude is all null, autopilot hasn't sent ATTITUDE yet
   const att = position.attitude;
-  if (!att || (att.roll == null && att.pitch == null && att.yaw == null)) return false;
+  if (!att || (att.roll == null && att.pitch == null && att.yaw == null))
+    return false;
   return true;
 }
 
@@ -23,7 +23,6 @@ export default function HudView({ position, isActive }: HudViewProps) {
   const [cameraLocked, setCameraLocked] = useState(true);
   const [browserVisible, setBrowserVisible] = useState(!document.hidden);
 
-  // Pause when browser tab hidden
   useEffect(() => {
     function onVisChange() {
       setBrowserVisible(!document.hidden);
@@ -34,9 +33,11 @@ export default function HudView({ position, isActive }: HudViewProps) {
 
   const connected = hasConnection(position);
   const shouldRender = isActive && browserVisible && connected;
-  const interp = useInterpolation(position, shouldRender);
 
-  // No connection — show message instead of fake HUD
+  // High-rate attitude stream (10Hz SSE, smoothed to 60fps)
+  const attitudeStore = useAttitude(shouldRender);
+
+  // No connection — show message
   if (!connected) {
     return (
       <div className="relative w-full h-full bg-black overflow-hidden rounded-lg flex items-center justify-center">
@@ -60,16 +61,15 @@ export default function HudView({ position, isActive }: HudViewProps) {
   return (
     <div className="relative w-full h-full bg-black overflow-hidden rounded-lg">
       <CesiumScene
-        interpolated={interp}
+        attitudeStore={attitudeStore}
         isActive={shouldRender}
         cameraLocked={cameraLocked}
       />
       <HudOverlay
         position={position}
-        interpolated={interp}
+        attitudeStore={attitudeStore}
         cameraLocked={cameraLocked}
       />
-      {/* Camera lock toggle */}
       <button
         onClick={() => setCameraLocked((v) => !v)}
         className="absolute top-3 right-3 z-20 px-3 py-1.5 text-xs font-mono rounded

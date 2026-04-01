@@ -323,6 +323,7 @@ def write_status_file(data):
         "position_stale":   data.get("position_stale", False),
         "position_age":     sf(data.get("position_age", 0.0), 1),
         "ekf_source":       data.get("ekf_source", "unknown"),
+        "ekf_aiding":       data.get("ekf_aiding", "NONE"),
         "ack_accept_rate":  sf(data.get("ack_accept_rate", 0.0), 1),
         # HUD telemetry (v1.1)
         "gps_sats":         data.get("gps_sats", 0),
@@ -397,6 +398,22 @@ while True:
     if hb and hb.get_srcSystem() == TARGET_SYS:
         print(f"Heartbeat received from system {hb.get_srcSystem()}!")
         break
+
+# Request higher-rate telemetry for HUD (20Hz ATTITUDE, 10Hz VFR_HUD)
+try:
+    mav.mav.command_long_send(
+        TARGET_SYS, TARGET_COMP,
+        mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+        30, 50000,  # ATTITUDE (msg 30) at 50ms = 20Hz
+        0, 0, 0, 0, 0)
+    mav.mav.command_long_send(
+        TARGET_SYS, TARGET_COMP,
+        mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL, 0,
+        74, 100000,  # VFR_HUD (msg 74) at 100ms = 10Hz
+        0, 0, 0, 0, 0)
+    print("Requested 20Hz ATTITUDE + 10Hz VFR_HUD from autopilot")
+except Exception as e:
+    print(f"Rate request failed (non-fatal): {e}")
 
 # -------------------------
 # Conditional GPS origin setting
@@ -479,7 +496,11 @@ _last_send_time = 0.0
 _last_send_epoch = 0.0
 _last_heartbeat_time = 0.0
 _last_status_write = 0.0
+_last_attitude_write = 0.0
 _last_csv_flush = 0.0
+_rate_requests_sent = False
+
+ATTITUDE_STATUS_FILE = "/tmp/starnav_attitude.json"
 
 # -------------------------
 # Main loop
@@ -526,6 +547,9 @@ try:
     # Flight mode
     custom_mode = 0
     vehicle_type = 0  # MAV_TYPE from heartbeat
+
+    # EKF aiding state (derived from EKF_STATUS_REPORT flags)
+    ekf_aiding = "NONE"  # "ABSOLUTE", "RELATIVE", "NONE"
 
     # ACK tracking (rolling window)
     ack_history = deque(maxlen=20)  # True=accepted, False=rejected
@@ -635,6 +659,13 @@ try:
                     ekf_flags = msg.flags
                     ekf_pos_var = msg.pos_horiz_variance
                     ekf_const_pos = bool(ekf_flags & 128)
+                    # Derive aiding state from flags
+                    if ekf_flags & (1 << 4):      # pos horiz absolute OK
+                        ekf_aiding = "ABSOLUTE"
+                    elif ekf_flags & (1 << 3):    # pos horiz relative OK
+                        ekf_aiding = "RELATIVE"
+                    else:
+                        ekf_aiding = "NONE"
                     if ekf_const_pos and ekf_source == "extpos":
                         print("!! WARNING: EKF in const_pos_mode while we are active source !!")
                 elif msg_type == "VFR_HUD":
@@ -864,7 +895,36 @@ try:
                 },
                 "vibration": {"x": vibe_x, "y": vibe_y, "z": vibe_z},
                 "flight_mode": get_flight_mode_name(vehicle_type, custom_mode),
+                "ekf_aiding": ekf_aiding,
             })
+
+        # Write high-rate attitude file for HUD (10Hz)
+        if now_monotonic - _last_attitude_write >= 0.1:
+            _last_attitude_write = now_monotonic
+            # Use EKF position (best estimate), fallback GPS, then Starlink
+            att_lat = ekf_lat if not math.isnan(ekf_lat) else (gps_lat if not math.isnan(gps_lat) else star_lat)
+            att_lon = ekf_lon if not math.isnan(ekf_lon) else (gps_lon if not math.isnan(gps_lon) else star_lon)
+            att_alt = ekf_alt if not math.isnan(ekf_alt) else (gps_alt if not math.isnan(gps_alt) else star_alt)
+            try:
+                att_json = json.dumps({
+                    "lat": round(att_lat, 7) if not math.isnan(att_lat) else None,
+                    "lon": round(att_lon, 7) if not math.isnan(att_lon) else None,
+                    "alt": round(att_alt, 2) if not math.isnan(att_alt) else None,
+                    "roll": round(roll, 2) if not math.isnan(roll) else None,
+                    "pitch": round(pitch, 2) if not math.isnan(pitch) else None,
+                    "yaw": round(yaw, 2) if not math.isnan(yaw) else None,
+                    "airspeed": round(airspeed, 1) if not math.isnan(airspeed) else None,
+                    "groundspeed": round(groundspeed, 1) if not math.isnan(groundspeed) else None,
+                    "heading": heading_vfr,
+                    "climb": round(climb_rate, 1) if not math.isnan(climb_rate) else None,
+                    "t": int(time.time() * 1000),
+                })
+                tmp = ATTITUDE_STATUS_FILE + ".tmp"
+                with open(tmp, "w") as f:
+                    f.write(att_json)
+                os.replace(tmp, ATTITUDE_STATUS_FILE)
+            except OSError:
+                pass
 
         time.sleep(0.2)
 finally:

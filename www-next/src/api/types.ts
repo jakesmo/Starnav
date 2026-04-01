@@ -81,6 +81,7 @@ export interface PositionData {
   flight_mode?: string | null;
   gps_sats?: number | null;
   gps_hdop?: number | null;
+  ekf_aiding?: string | null;
 }
 
 export interface StatusResponse {

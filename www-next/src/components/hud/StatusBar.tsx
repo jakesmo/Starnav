@@ -1,9 +1,9 @@
 import type { PositionData } from "../../api/types";
-import type { InterpolatedState } from "./useInterpolation";
+import type { AttitudeStore } from "../../hooks/useAttitude";
 
 interface StatusBarProps {
   position: PositionData | null;
-  interpolated: InterpolatedState;
+  attitudeStore: React.RefObject<AttitudeStore | null>;
 }
 
 function StatusItem({
@@ -23,32 +23,22 @@ function StatusItem({
   );
 }
 
-function gpsFixLabel(fix: number | undefined): { text: string; color: string } {
-  switch (fix) {
-    case 0:
-    case 1:
-      return { text: "NO FIX", color: "text-red-400" };
-    case 2:
-      return { text: "2D", color: "text-yellow-400" };
-    case 3:
-      return { text: "3D", color: "text-green-400" };
-    case 4:
-      return { text: "DGPS", color: "text-green-400" };
-    case 5:
-      return { text: "RTK Float", color: "text-cyan-400" };
-    case 6:
-      return { text: "RTK Fix", color: "text-cyan-300" };
-    default:
-      return { text: "---", color: "text-gray-500" };
-  }
+function posSourceColor(src: string | null | undefined): string {
+  if (src === "extpos") return "text-cyan-400";
+  if (src === "gps") return "text-green-400";
+  return "text-red-400";
 }
 
-function ekfStatus(p: PositionData | null): { text: string; color: string } {
-  if (!p) return { text: "---", color: "text-gray-500" };
-  if (p.ekf?.const_pos_mode) return { text: "CONST POS", color: "text-red-400" };
-  const v = p.ekf?.pos_variance ?? 0;
-  if (v > 1.0) return { text: `VAR ${v.toFixed(1)}`, color: "text-yellow-400" };
-  return { text: "OK", color: "text-green-400" };
+function aidingColor(aid: string | null | undefined): string {
+  if (aid === "ABSOLUTE") return "text-green-400";
+  if (aid === "RELATIVE") return "text-yellow-400";
+  return "text-red-400";
+}
+
+function vibeColor(v: number): string {
+  if (v > 60) return "text-red-400";
+  if (v > 30) return "text-yellow-400";
+  return "text-green-400";
 }
 
 function batteryStatus(p: PositionData | null): { text: string; color: string } {
@@ -65,25 +55,17 @@ function batteryStatus(p: PositionData | null): { text: string; color: string } 
   return { text: `${v.toFixed(1)}V${pct}`, color };
 }
 
-function vibeStatus(p: PositionData | null): { text: string; color: string } {
-  const vib = p?.vibration;
-  if (!vib || vib.x == null) return { text: "---", color: "text-gray-500" };
-  const max = Math.max(Math.abs(vib.x ?? 0), Math.abs(vib.y ?? 0), Math.abs(vib.z ?? 0));
-  if (max > 60) return { text: max.toFixed(0), color: "text-red-400" };
-  if (max > 30) return { text: max.toFixed(0), color: "text-yellow-400" };
-  return { text: max.toFixed(0), color: "text-green-400" };
-}
-
-export default function StatusBar({ position, interpolated }: StatusBarProps) {
-  const gps = gpsFixLabel(position?.gps ? 3 : undefined); // TODO: expose fix_type from backend
-  const ekf = ekfStatus(position);
+export default function StatusBar({ position }: StatusBarProps) {
   const bat = batteryStatus(position);
-  const vibe = vibeStatus(position);
+  const vib = position?.vibration;
+  const vx = Math.abs(vib?.x ?? 0);
+  const vy = Math.abs(vib?.y ?? 0);
+  const vz = Math.abs(vib?.z ?? 0);
 
   return (
     <div className="flex items-center justify-center gap-4 px-4 py-1.5
       bg-black/60 border-t border-green-900/40 flex-wrap">
-      {/* Armed state */}
+      {/* Armed */}
       <StatusItem
         label="ARM"
         value={position?.is_armed ? "ARMED" : "DISARMED"}
@@ -91,16 +73,28 @@ export default function StatusBar({ position, interpolated }: StatusBarProps) {
       />
 
       {/* Flight mode */}
+      <StatusItem label="MODE" value={position?.flight_mode ?? "---"} />
+
+      {/* Position source */}
       <StatusItem
-        label="MODE"
-        value={position?.flight_mode ?? "---"}
+        label="SRC"
+        value={(position?.ekf_source ?? "NONE").toUpperCase()}
+        color={posSourceColor(position?.ekf_source)}
+      />
+
+      {/* EKF aiding state */}
+      <StatusItem
+        label="AID"
+        value={position?.ekf_aiding ?? "---"}
+        color={aidingColor(position?.ekf_aiding)}
       />
 
       {/* GPS */}
       <StatusItem
         label="GPS"
-        value={`${gps.text}${position?.gps_sats != null ? ` (${position.gps_sats})` : ""}`}
-        color={gps.color}
+        value={position?.gps_sats != null ? `${position.gps_sats} sats` : "---"}
+        color={position?.gps_sats != null && position.gps_sats >= 6
+          ? "text-green-400" : "text-yellow-400"}
       />
 
       {/* HDOP */}
@@ -112,26 +106,29 @@ export default function StatusBar({ position, interpolated }: StatusBarProps) {
         />
       )}
 
-      {/* EKF */}
-      <StatusItem label="EKF" value={ekf.text} color={ekf.color} />
-
-      {/* EKF Source */}
-      <StatusItem
-        label="SRC"
-        value={(position?.ekf_source ?? "---").toUpperCase()}
-        color={position?.ekf_source === "extpos" ? "text-cyan-400" : "text-green-400"}
-      />
-
       {/* Battery */}
       <StatusItem label="BAT" value={bat.text} color={bat.color} />
 
-      {/* Vibration */}
-      <StatusItem label="VIBE" value={vibe.text} color={vibe.color} />
+      {/* Per-axis vibration */}
+      {vib && vib.x != null && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-green-400/50 text-[10px] uppercase">VIBE</span>
+          <span className={`font-mono text-xs font-semibold ${vibeColor(vx)}`}>
+            X:{vx.toFixed(0)}
+          </span>
+          <span className={`font-mono text-xs font-semibold ${vibeColor(vy)}`}>
+            Y:{vy.toFixed(0)}
+          </span>
+          <span className={`font-mono text-xs font-semibold ${vibeColor(vz)}`}>
+            Z:{vz.toFixed(0)}
+          </span>
+        </div>
+      )}
 
       {/* Throttle */}
       <StatusItem
         label="THR"
-        value={`${Math.round(interpolated.throttle)}%`}
+        value={`${Math.round(position?.vfr_hud?.throttle ?? 0)}%`}
       />
 
       {/* Waypoint */}
@@ -142,7 +139,7 @@ export default function StatusBar({ position, interpolated }: StatusBarProps) {
         />
       )}
 
-      {/* Crosstrack error */}
+      {/* Crosstrack */}
       {position?.nav?.xtrack_error != null && Math.abs(position.nav.xtrack_error) > 0.1 && (
         <StatusItem
           label="XTK"
