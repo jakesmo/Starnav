@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { PositionData } from "../api/types";
 import { useAttitude } from "../hooks/useAttitude";
 import { useSatellites } from "../hooks/useSatellites";
+import { useWeather } from "../hooks/useWeather";
 import CesiumScene from "./hud/CesiumScene";
 import type { CameraMode } from "./hud/CesiumScene";
 import HudOverlay from "./hud/HudOverlay";
@@ -74,6 +75,7 @@ export default function HudView({ position, isActive }: HudViewProps) {
   const { satellites } = useSatellites(
     acLat, acLon, acAlt, acRoll, acPitch, acYaw, shouldRender,
   );
+  const weather = useWeather(acLat, acLon, acAlt, shouldRender);
 
   if (!connected) {
     return (
@@ -110,6 +112,7 @@ export default function HudView({ position, isActive }: HudViewProps) {
           position={position}
           attitudeStore={attitudeStore}
           cameraLocked={true}
+          weather={weather}
         />
       )}
 
@@ -118,6 +121,7 @@ export default function HudView({ position, isActive }: HudViewProps) {
         <ThirdPersonOverlay
           position={position}
           attitudeStore={attitudeStore}
+          weather={weather}
         />
       )}
 
@@ -127,6 +131,7 @@ export default function HudView({ position, isActive }: HudViewProps) {
           position={position}
           attitudeStore={attitudeStore}
           cameraLocked={false}
+          weather={weather}
         />
       )}
 

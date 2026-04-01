@@ -8,11 +8,14 @@ import SpeedTape from "./SpeedTape";
 import AltitudeTape from "./AltitudeTape";
 import StatusBar from "./StatusBar";
 import UtcClock from "./UtcClock";
+import WindIndicator from "./WindIndicator";
+import type { WeatherData } from "../../hooks/useWeather";
 
 interface HudOverlayProps {
   position: PositionData | null;
   attitudeStore: React.RefObject<AttitudeStore | null>;
   cameraLocked: boolean;
+  weather: WeatherData | null;
 }
 
 /**
@@ -23,6 +26,7 @@ export default function HudOverlay({
   position,
   attitudeStore,
   cameraLocked,
+  weather,
 }: HudOverlayProps) {
   // Refs for each tape component to read smoothed data
   const pitchRef = useRef<{ pitch: number; roll: number }>({ pitch: 0, roll: 0 });
@@ -77,6 +81,11 @@ export default function HudOverlay({
       {/* Altitude tape + climb rate — right */}
       <div className="absolute right-4 top-1/2 -translate-y-1/2">
         <AltitudeTape dataRef={altRef} />
+      </div>
+
+      {/* Wind indicator — top left */}
+      <div className="absolute top-5 left-4">
+        <WindIndicator weather={weather} />
       </div>
 
       {/* UTC clock — top right */}

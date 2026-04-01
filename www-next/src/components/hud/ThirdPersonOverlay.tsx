@@ -3,10 +3,13 @@ import type { PositionData } from "../../api/types";
 import type { AttitudeStore } from "../../hooks/useAttitude";
 import { smooth } from "../../hooks/useAttitude";
 import UtcClock from "./UtcClock";
+import WindIndicator from "./WindIndicator";
+import type { WeatherData } from "../../hooks/useWeather";
 
 interface ThirdPersonOverlayProps {
   position: PositionData | null;
   attitudeStore: React.RefObject<AttitudeStore | null>;
+  weather: WeatherData | null;
 }
 
 /**
@@ -16,6 +19,7 @@ interface ThirdPersonOverlayProps {
 export default function ThirdPersonOverlay({
   position,
   attitudeStore,
+  weather,
 }: ThirdPersonOverlayProps) {
   const spdRef = useRef<HTMLSpanElement>(null);
   const altRef = useRef<HTMLSpanElement>(null);
@@ -59,8 +63,10 @@ export default function ThirdPersonOverlay({
             AID {aid}
           </span>
         </div>
-        {/* Line 2: UTC clock */}
+        {/* Line 2: wind + UTC */}
         <div className="flex items-center gap-3 text-green-400/70">
+          <WindIndicator weather={weather} />
+          <span className="text-green-400/40">|</span>
           <UtcClock />
         </div>
       </div>
