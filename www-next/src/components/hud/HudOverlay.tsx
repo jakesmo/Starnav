@@ -7,6 +7,7 @@ import HeadingTape from "./HeadingTape";
 import SpeedTape from "./SpeedTape";
 import AltitudeTape from "./AltitudeTape";
 import StatusBar from "./StatusBar";
+import UtcClock from "./UtcClock";
 
 interface HudOverlayProps {
   position: PositionData | null;
@@ -76,6 +77,11 @@ export default function HudOverlay({
       {/* Altitude tape + climb rate — right */}
       <div className="absolute right-4 top-1/2 -translate-y-1/2">
         <AltitudeTape dataRef={altRef} />
+      </div>
+
+      {/* UTC clock — top right */}
+      <div className="absolute top-5 right-4">
+        <UtcClock />
       </div>
 
       {/* Status bar — bottom (React state, 1-2Hz is fine) */}

@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { PositionData } from "../api/types";
 import { useAttitude } from "../hooks/useAttitude";
 import CesiumScene from "./hud/CesiumScene";
+import type { CameraMode } from "./hud/CesiumScene";
 import HudOverlay from "./hud/HudOverlay";
+import ThirdPersonOverlay from "./hud/ThirdPersonOverlay";
 
 interface HudViewProps {
   position: PositionData | null;
   isActive: boolean;
 }
 
-/** True when we have a live MAVLink connection with real telemetry. */
 function hasConnection(position: PositionData | null): boolean {
   if (!position) return false;
   if (position.startup_phase) return false;
@@ -19,8 +20,16 @@ function hasConnection(position: PositionData | null): boolean {
   return true;
 }
 
+const MODE_LABELS: Record<CameraMode, string> = {
+  "first-person": "First Person",
+  "third-person": "Third Person",
+  "free-look": "Free Look",
+};
+
+const MODE_CYCLE: CameraMode[] = ["first-person", "third-person", "free-look"];
+
 export default function HudView({ position, isActive }: HudViewProps) {
-  const [cameraLocked, setCameraLocked] = useState(true);
+  const [cameraMode, setCameraMode] = useState<CameraMode>("first-person");
   const [browserVisible, setBrowserVisible] = useState(!document.hidden);
 
   useEffect(() => {
@@ -31,13 +40,29 @@ export default function HudView({ position, isActive }: HudViewProps) {
     return () => document.removeEventListener("visibilitychange", onVisChange);
   }, []);
 
+  // Keyboard shortcut: V to cycle camera modes
+  const cycleMode = useCallback(() => {
+    setCameraMode((prev) => {
+      const idx = MODE_CYCLE.indexOf(prev);
+      return MODE_CYCLE[(idx + 1) % MODE_CYCLE.length];
+    });
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "v" || e.key === "V") {
+        e.preventDefault();
+        cycleMode();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cycleMode]);
+
   const connected = hasConnection(position);
   const shouldRender = isActive && browserVisible && connected;
-
-  // High-rate attitude stream (10Hz SSE, smoothed to 60fps)
   const attitudeStore = useAttitude(shouldRender);
 
-  // No connection — show message
   if (!connected) {
     return (
       <div className="relative w-full h-full bg-black overflow-hidden rounded-lg flex items-center justify-center">
@@ -63,20 +88,44 @@ export default function HudView({ position, isActive }: HudViewProps) {
       <CesiumScene
         attitudeStore={attitudeStore}
         isActive={shouldRender}
-        cameraLocked={cameraLocked}
+        cameraMode={cameraMode}
       />
-      <HudOverlay
-        position={position}
-        attitudeStore={attitudeStore}
-        cameraLocked={cameraLocked}
-      />
+
+      {/* First-person: full HUD overlay */}
+      {cameraMode === "first-person" && (
+        <HudOverlay
+          position={position}
+          attitudeStore={attitudeStore}
+          cameraLocked={true}
+        />
+      )}
+
+      {/* Third-person: compact data readout */}
+      {cameraMode === "third-person" && (
+        <ThirdPersonOverlay
+          position={position}
+          attitudeStore={attitudeStore}
+        />
+      )}
+
+      {/* Free-look: full HUD (body-axis fixed behavior from HudOverlay) */}
+      {cameraMode === "free-look" && (
+        <HudOverlay
+          position={position}
+          attitudeStore={attitudeStore}
+          cameraLocked={false}
+        />
+      )}
+
+      {/* Camera mode toggle */}
       <button
-        onClick={() => setCameraLocked((v) => !v)}
+        onClick={cycleMode}
         className="absolute top-3 right-3 z-20 px-3 py-1.5 text-xs font-mono rounded
           bg-black/60 border border-white/20 text-white/80 hover:bg-black/80
           hover:text-white transition-colors"
+        title="Press V to cycle"
       >
-        {cameraLocked ? "Unlock Camera" : "Lock Camera"}
+        {MODE_LABELS[cameraMode]}
       </button>
     </div>
   );
