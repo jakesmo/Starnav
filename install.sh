@@ -117,9 +117,13 @@ download_repo() {
     # If already installed with git, just pull
     if [ -d "$INSTALL_DIR/.git" ] && command -v git >/dev/null 2>&1; then
         info "Existing installation found, pulling latest..."
-        git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH" 2>&1 || true
+        # Shallow fetch — only latest commit, saves ~90% storage vs full history
+        git -C "$INSTALL_DIR" fetch --depth=1 origin "$REPO_BRANCH" 2>&1 || true
         git -C "$INSTALL_DIR" reset --hard "origin/$REPO_BRANCH" 2>&1 || true
         git -C "$INSTALL_DIR" submodule update --init --recursive 2>&1 || true
+        # Clean stale git objects to reclaim storage
+        git -C "$INSTALL_DIR" reflog expire --expire=now --all 2>/dev/null
+        git -C "$INSTALL_DIR" gc --prune=all -q 2>/dev/null
         ok "Updated to latest"
         return 0
     fi
@@ -257,13 +261,20 @@ setup_git_repo() {
     cd "$INSTALL_DIR"
     git init -q
     git remote add origin "$REPO_URL" 2>/dev/null || git remote set-url origin "$REPO_URL"
-    git fetch -q origin "$REPO_BRANCH" 2>&1 || {
+    git fetch --depth=1 -q origin "$REPO_BRANCH" 2>&1 || {
         warn "Git fetch failed -- updates via 'git pull' won't work until resolved"
         return 0
     }
     git checkout -b "$REPO_BRANCH" 2>/dev/null || true
     git reset --hard "origin/$REPO_BRANCH" 2>/dev/null || true
     git submodule update --init --recursive 2>/dev/null || true
+    git reflog expire --expire=now --all 2>/dev/null
+    git gc --prune=all -q 2>/dev/null
+    # Save version/branch tracking files (matching RVR pattern)
+    mkdir -p /etc/starnav
+    git rev-parse --short HEAD > /etc/starnav/version 2>/dev/null
+    echo "$REPO_BRANCH" > /etc/starnav/branch
+    echo "${REPO_OWNER}/${REPO_NAME}" > /etc/starnav/repo
     ok "Git repository initialized"
 }
 
@@ -503,6 +514,7 @@ do_uninstall() {
     if [ -f "$CONFIG_FILE" ] || [ -f "${CONFIG_FILE}.new" ]; then
         info "Removing config files..."
         rm -f "$CONFIG_FILE" "${CONFIG_FILE}.new"
+        rm -rf /etc/starnav
         ok "Config files removed"
     fi
 
@@ -564,8 +576,10 @@ do_uninstall() {
     ok "StarNav has been uninstalled."
     echo "=========================================="
     echo ""
+    # NOTE: System packages (git, python3, ntpd) are NOT removed.
+    # They may be shared dependencies. Removing them has bricked routers.
     echo "  Note: System packages (git, python3, ntpd) were NOT removed"
-    echo "  as they may be used by other software."
+    echo "  as they may be shared with system dependencies."
     echo ""
 }
 

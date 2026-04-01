@@ -68,3 +68,26 @@ export function downloadFlightLogUrl(file: string): string {
 export function fetchVersion(): Promise<VersionInfo> {
   return get<VersionInfo>("/version.cgi");
 }
+
+// ── Update Management ────────────────────────────────────────────────
+
+export async function updateLocal(
+  branch?: string,
+): Promise<CommandResponse> {
+  const body: Record<string, unknown> = { action: "update_local" };
+  if (branch) body.branch = branch;
+  return post<CommandResponse>("/api.cgi", body);
+}
+
+export async function checkUpdate(): Promise<VersionInfo> {
+  return get<VersionInfo>("/api.cgi?action=check_update");
+}
+
+export interface BranchList {
+  current: string;
+  branches: string[];
+}
+
+export async function listBranches(): Promise<BranchList> {
+  return get<BranchList>("/api.cgi?action=list_branches");
+}

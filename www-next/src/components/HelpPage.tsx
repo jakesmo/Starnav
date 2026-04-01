@@ -166,6 +166,47 @@ export default function HelpPage() {
         </div>
       </Card>
 
+      {/* Updates */}
+      <Card title="Updates">
+        <div className="text-sm text-text-secondary space-y-2">
+          <p>
+            The header bar shows the current version as{" "}
+            <Code>branch:commit</Code> on the right side. The dot color
+            indicates status: <strong className="text-success">green</strong> =
+            up to date, <strong className="text-warning">amber</strong> = update
+            available, <strong className="text-accent">blue</strong> = dev
+            branch.
+          </p>
+          <p>
+            When an update is available, an amber banner appears below the
+            header. Click <strong>Update Now</strong> to open the update modal,
+            or dismiss the banner (per-session). The refresh button (&#x21bb;)
+            re-checks GitHub for the latest commit.
+          </p>
+          <p>
+            The <strong>update modal</strong> lets you select a branch (default:{" "}
+            <Code>main</Code>) and shows a live progress log. After a successful
+            update, click <strong>Reload Page</strong> to load the new web UI.
+          </p>
+          <p>
+            Updates use shallow git fetch + hard reset to minimize flash usage.
+            A pre-flight check aborts if less than 30 MB free on{" "}
+            <Code>/overlay</Code>. Git objects are garbage-collected after each
+            update.
+          </p>
+        </div>
+        <div className="mt-3">
+          <Table
+            headers={["File", "Content"]}
+            rows={[
+              ["/etc/starnav/version", "Current commit hash"],
+              ["/etc/starnav/branch", "Active branch (default: main)"],
+              ["/etc/starnav/repo", "GitHub owner/repo"],
+            ]}
+          />
+        </div>
+      </Card>
+
       {/* Troubleshooting */}
       <Card title="Troubleshooting">
         <div className="space-y-3 text-sm">
@@ -213,7 +254,7 @@ export default function HelpPage() {
             </p>
           </div>
 
-          <div className="pb-0">
+          <div className="border-b border-border pb-2">
             <p className="text-text-primary font-medium">
               Low ACK accept rate
             </p>
@@ -222,6 +263,30 @@ export default function HelpPage() {
               large position jumps or EKF divergence. Check position variance
               in the EKF Health card. A restart of the EKF (or re-arm) may help
               after resolving the root cause.
+            </p>
+          </div>
+
+          <div className="border-b border-border pb-2">
+            <p className="text-text-primary font-medium">
+              Update fails: "Not enough space"
+            </p>
+            <p className="text-text-secondary mt-1">
+              The device needs at least 30 MB free on <Code>/overlay</Code>{" "}
+              for updates. Delete old CSV flight logs from the Dashboard tab
+              or SSH in and run{" "}
+              <Code>df /overlay</Code> to check free space.
+            </p>
+          </div>
+
+          <div className="pb-0">
+            <p className="text-text-primary font-medium">
+              Update banner won't go away after updating
+            </p>
+            <p className="text-text-secondary mt-1">
+              Click the refresh button (&#x21bb;) next to the version in the
+              header to re-check. If the cache is stale, clear it:{" "}
+              <Code>rm /tmp/starnav_git_remote</Code> or visit{" "}
+              <Code>version.cgi?invalidate</Code>.
             </p>
           </div>
         </div>

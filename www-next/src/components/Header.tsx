@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Play, Square, RotateCw } from "lucide-react";
-import { executeCommand } from "../api/client";
+import { Play, Square, RotateCw, RefreshCw } from "lucide-react";
+import { executeCommand, checkUpdate } from "../api/client";
 import Button from "./ui/Button";
 import { cn } from "../lib/utils";
 import type { LinkStats } from "../hooks/useLinkStats";
+import type { VersionInfo } from "../api/types";
 
 export type AppTab = "dashboard" | "map" | "hud" | "settings" | "help";
 
@@ -12,6 +13,8 @@ interface HeaderProps {
   onTabChange: (tab: AppTab) => void;
   connected: boolean;
   linkStats?: LinkStats;
+  version?: VersionInfo;
+  onVersionRefresh?: () => void;
 }
 
 const tabs: { id: AppTab; label: string }[] = [
@@ -33,8 +36,11 @@ export default function Header({
   onTabChange,
   connected,
   linkStats,
+  version,
+  onVersionRefresh,
 }: HeaderProps) {
   const [loading, setLoading] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   async function handleCommand(action: "start" | "stop" | "restart") {
     setLoading(action);
@@ -46,6 +52,23 @@ export default function Header({
       setLoading(null);
     }
   }
+
+  const handleCheckUpdate = async () => {
+    setChecking(true);
+    try {
+      await checkUpdate();
+      onVersionRefresh?.();
+    } catch {
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const versionHash =
+    version?.commit && version.commit !== "unknown" ? version.commit : null;
+  const branch = version?.branch || "main";
+  const isDevBranch = branch !== "main";
+  const repoUrl = "https://github.com/jack7169/Starnav";
 
   return (
     <header className="sticky top-0 z-50 bg-bg-secondary border-b border-border">
@@ -70,42 +93,85 @@ export default function Header({
           <div className="flex items-center gap-3">
             {/* Link stats indicator */}
             {linkStats && (
-              <span className={cn(
-                "text-xs font-mono hidden md:inline",
-                linkStatsColor(linkStats.kbps),
-              )}>
+              <span
+                className={cn(
+                  "text-xs font-mono hidden md:inline",
+                  linkStatsColor(linkStats.kbps),
+                )}
+              >
                 {linkStats.packetsPerSec} pkt/s &middot; {linkStats.kbps} kbps
               </span>
             )}
 
+            {/* Version indicator (matching RVR Header pattern) */}
+            {versionHash && (
+              <div className="flex items-center gap-1.5 hidden md:flex">
+                <a
+                  href={`${repoUrl}/commit/${versionHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+                  title={`View commit ${versionHash} on GitHub`}
+                >
+                  <div
+                    className={cn(
+                      "w-2 h-2 rounded-full",
+                      version?.update_available
+                        ? "bg-warning"
+                        : isDevBranch
+                          ? "bg-accent"
+                          : "bg-success",
+                    )}
+                  />
+                  <span className={isDevBranch ? "text-accent" : undefined}>
+                    {branch}
+                  </span>
+                  :{versionHash}
+                </a>
+                <button
+                  onClick={handleCheckUpdate}
+                  disabled={checking}
+                  className="text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+                  title="Check for updates"
+                >
+                  <RefreshCw
+                    className={cn(
+                      "w-3 h-3",
+                      checking && "animate-spin",
+                    )}
+                  />
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center gap-1.5">
-            <Button
-              variant="primary"
-              onClick={() => handleCommand("start")}
-              loading={loading === "start"}
-              disabled={loading !== null}
-            >
-              <Play size={13} />
-              <span className="hidden md:inline">Start</span>
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => handleCommand("stop")}
-              loading={loading === "stop"}
-              disabled={loading !== null}
-            >
-              <Square size={13} />
-              <span className="hidden md:inline">Stop</span>
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => handleCommand("restart")}
-              loading={loading === "restart"}
-              disabled={loading !== null}
-            >
-              <RotateCw size={13} />
-              <span className="hidden md:inline">Restart</span>
-            </Button>
+              <Button
+                variant="primary"
+                onClick={() => handleCommand("start")}
+                loading={loading === "start"}
+                disabled={loading !== null}
+              >
+                <Play size={13} />
+                <span className="hidden md:inline">Start</span>
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => handleCommand("stop")}
+                loading={loading === "stop"}
+                disabled={loading !== null}
+              >
+                <Square size={13} />
+                <span className="hidden md:inline">Stop</span>
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleCommand("restart")}
+                loading={loading === "restart"}
+                disabled={loading !== null}
+              >
+                <RotateCw size={13} />
+                <span className="hidden md:inline">Restart</span>
+              </Button>
             </div>
           </div>
         </div>

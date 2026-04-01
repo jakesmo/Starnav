@@ -169,6 +169,9 @@ React 19 SPA served at `http://<router-ip>:8082`. Built with Vite + Tailwind CSS
 - **Startup banner** — shows connection state during heartbeat wait (amber pulsing indicator with elapsed time)
 - **SSE status streaming** with polling fallback for RVR link budget optimization
 - **Service controls** — Start, Stop, Restart buttons in header
+- **Version indicator** — `branch:hash` in header with color-coded dot (green=up to date, amber=update available, blue=dev branch), click to view commit on GitHub
+- **Update banner** — persistent amber banner when update available, with "Update Now", dismiss, and refresh buttons
+- **Update modal** — branch selector dropdown, progress log streaming, success/failure with "Reload Page" button
 - **Link stats indicator** — real-time packets/sec and kbps in header bar with color coding (green/amber/red) for RVR bandwidth awareness
 - **Log viewer** — real-time SSE stream with pause, clear, color-coded levels
 - **StarNav log manager** — browse, preview (last 50 rows), and download CSV logs without SSH
@@ -203,12 +206,22 @@ npm run build        # production build to ../www/
 |----------|--------|-------------|
 | `/cgi-bin/status-stream.cgi` | GET | SSE status push stream |
 | `/cgi-bin/status.cgi` | GET | Process status + live position JSON (fallback) |
-| `/cgi-bin/api.cgi` | POST | Service control (`start`, `stop`, `restart`) |
+| `/cgi-bin/api.cgi` | POST/GET | Service control + update management (see below) |
 | `/cgi-bin/config.cgi` | GET/POST | Config read (`?action=read`) and write (JSON body) |
 | `/cgi-bin/logs.cgi` | GET | SSE log stream |
 | `/cgi-bin/logs-csv.cgi` | GET | Log list, preview, download (`?action=list\|download\|tail`) |
-| `/cgi-bin/version.cgi` | GET | Git version + update check |
-| `/cgi-bin/update.cgi` | GET | SSE update progress stream |
+| `/cgi-bin/version.cgi` | GET | Branch-aware git version + update check (cached 60s) |
+| `/cgi-bin/update.cgi` | GET | SSE update progress stream (shallow fetch + hard reset) |
+
+#### api.cgi Actions
+
+| Action | Method | Description |
+|--------|--------|-------------|
+| `start` / `stop` / `restart` | POST | Service control |
+| `update_local` | POST | Start background update (`{branch?: string}`) |
+| `check_update` | GET | Force-refresh version check (clears cache) |
+| `list_branches` | GET | List available remote git branches |
+| `setup_log` | GET | Return update progress log for polling |
 
 ## MAVLink Protocol
 
@@ -236,6 +249,36 @@ npm run build        # production build to ../www/
 | `MISSION_CURRENT` | Current waypoint number |
 | `NAV_CONTROLLER_OUTPUT` | Waypoint distance, crosstrack error, nav/target bearing |
 | `VIBRATION` | Vibration levels (x/y/z) |
+
+## Update System
+
+Branch-aware update management matching the RVR pattern.
+
+### Version Tracking
+
+| File | Content | Example |
+|------|---------|---------|
+| `/etc/starnav/version` | Short commit hash | `36f1d68` |
+| `/etc/starnav/branch` | Current branch name | `main` |
+| `/etc/starnav/repo` | GitHub owner/repo | `jack7169/Starnav` |
+
+### Storage-Safe Updates
+
+Updates use shallow fetch + hard reset to minimize flash usage:
+
+| Metric | Before | After |
+|--------|--------|-------|
+| `.git/` size (100+ commits) | ~8 MB | ~1 MB (depth=1) |
+| Stale JS assets per update | +200 KB cumulative | 0 (rm before copy) |
+| Git objects after 50 updates | ~12 MB | ~1 MB (gc after each) |
+| Failed update recovery | Device bricked | Aborts if < 30 MB free |
+
+### UI
+
+- **Header:** `branch:hash` with color-coded dot and check button
+- **Update banner:** amber bar when remote has newer commits, dismiss per-session
+- **Update modal:** branch selector, progress log streaming, reload button
+- **Web UI or CLI:** update via dashboard button or `update.cgi` SSE stream
 
 ## System Health & Logging
 
@@ -331,6 +374,9 @@ www-next/                   React UI source (Vite + Tailwind + TypeScript)
     api/                    API client and TypeScript types
     components/             React components (Map, HUD, Dashboard, Settings, Help)
       hud/                  HUD sub-components (CesiumScene, PitchLadder, tapes, StatusBar)
+      ui/                   Reusable UI (Button, Card, Badge, Modal)
+      UpdateBanner.tsx       Persistent update notification banner
+      UpdateModal.tsx        Branch-aware update execution modal
     hooks/                  useStatus (SSE+polling), useLogStream (SSE), useLinkStats
     lib/                    Formatting utils, Zod schemas
 www/                        Built output (committed, served by uhttpd)
@@ -340,7 +386,7 @@ www/                        Built output (committed, served by uhttpd)
     status-stream.cgi       SSE status push stream
     status.cgi              Status API (polling fallback)
     config.cgi              Config read/write API
-    api.cgi                 Service control API
+    api.cgi                 Service control + update management API
     logs.cgi                SSE log streaming
     logs-csv.cgi            StarNav log list, preview, download
     version.cgi             Git version + update check

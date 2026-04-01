@@ -152,4 +152,6 @@ export interface VersionInfo {
   commit: string;
   update_available: boolean;
   remote_commit?: string;
+  branch?: string;
+  last_checked?: number;
 }
