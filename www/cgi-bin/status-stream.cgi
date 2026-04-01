@@ -11,6 +11,18 @@ printf 'Content-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection
 # Tell the browser to reconnect after 3 s if the stream ends
 printf 'retry: 3000\n\n'
 
+# Auto-kill after 5 minutes to prevent orphaned processes
+# SSE clients should reconnect via retry: 3000 — this is a safety net
+(sleep 300; kill -TERM $$ 2>/dev/null; sleep 2; kill -KILL $$ 2>/dev/null) &
+TIMEOUT_PID=$!
+
+cleanup() {
+    kill $TIMEOUT_PID 2>/dev/null
+    exit 0
+}
+
+trap cleanup EXIT INT TERM HUP PIPE
+
 STATUS_FILE="/tmp/starnav_status.json"
 PID_FILE="/var/run/starnav.pid"
 LAST_MTIME=""

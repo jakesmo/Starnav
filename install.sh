@@ -361,6 +361,52 @@ set_permissions() {
 }
 
 #############################################
+# INSTALL: WATCHDOG (cron-based flash/process safety)
+#############################################
+install_watchdog() {
+    info "Installing watchdog..."
+
+    cat > /etc/starnav-watchdog.sh << 'WATCHDOG'
+#!/bin/sh
+# StarNav watchdog — runs every minute via cron
+# Prevents flash exhaustion and orphaned process accumulation
+LOCK="/tmp/starnav-watchdog.lock"
+[ -f "$LOCK" ] && kill -0 $(cat "$LOCK") 2>/dev/null && exit 0
+echo $$ > "$LOCK"
+trap "rm -f $LOCK" EXIT
+
+# Dynamic log rotation based on available flash space
+FLASH_FREE_KB=$(df /overlay 2>/dev/null | tail -1 | awk '{print $4}')
+
+# Low space: warn via syslog
+if [ "${FLASH_FREE_KB:-999999}" -lt 20480 ]; then
+    logger -t starnav -p daemon.warn "Low flash: ${FLASH_FREE_KB}KB free"
+fi
+# Critical: emergency syslog
+if [ "${FLASH_FREE_KB:-999999}" -lt 5120 ]; then
+    logger -t starnav -p daemon.err "CRITICAL: ${FLASH_FREE_KB}KB flash free"
+fi
+
+# Kill orphaned log streaming processes (logread/grep from closed SSE connections)
+for pid in $(pgrep -f "grep.*starnav\|logread" 2>/dev/null); do
+    # Only kill if parent is init (orphaned)
+    ppid=$(awk '/PPid/ {print $2}' /proc/$pid/status 2>/dev/null)
+    [ "$ppid" = "1" ] && kill "$pid" 2>/dev/null
+done
+
+# Clean stale temp files (older than 1 hour)
+find /tmp -name 'starnav_status.json.tmp' -mmin +60 -delete 2>/dev/null
+WATCHDOG
+    chmod +x /etc/starnav-watchdog.sh
+
+    if ! crontab -l 2>/dev/null | grep -q "starnav-watchdog"; then
+        (crontab -l 2>/dev/null; echo "* * * * * /etc/starnav-watchdog.sh") | crontab -
+    fi
+
+    ok "Watchdog installed (cron, every minute)"
+}
+
+#############################################
 # DO INSTALL
 #############################################
 do_install() {
@@ -388,6 +434,7 @@ do_install() {
     install_config
     install_init_script
     install_web_server
+    install_watchdog
 
     echo ""
     echo "=========================================="
@@ -459,15 +506,23 @@ do_uninstall() {
         ok "Config files removed"
     fi
 
-    # 5. Remove runtime/temp files
+    # 5. Remove watchdog
+    if crontab -l 2>/dev/null | grep -q "starnav-watchdog"; then
+        info "Removing watchdog..."
+        crontab -l 2>/dev/null | grep -v "starnav-watchdog" | crontab - 2>/dev/null || true
+        rm -f /etc/starnav-watchdog.sh
+        ok "Watchdog removed"
+    fi
+
+    # 6. Remove runtime/temp files
     info "Cleaning up runtime files..."
     rm -f /tmp/starnav_status.json /tmp/starnav_status.json.tmp
     rm -f /tmp/starnav-webui.lock /tmp/starnav-update.lock
-    rm -f /tmp/starnav_git_remote
+    rm -f /tmp/starnav_git_remote /tmp/starnav-watchdog.lock
     rm -f /var/run/starnav.pid
     ok "Runtime files cleaned"
 
-    # 6. Flight logs (ask user)
+    # 7. Flight logs (ask user)
     local csv_dir="/root/starlink_logs"
     if [ -d "$csv_dir" ]; then
         local log_size
@@ -487,7 +542,7 @@ do_uninstall() {
         esac
     fi
 
-    # 7. Python packages (ask user)
+    # 8. Python packages (ask user)
     if python3 -m pip --version >/dev/null 2>&1; then
         echo ""
         printf "Remove Python packages ($PIP_PACKAGES)? [y/N] "

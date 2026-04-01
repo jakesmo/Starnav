@@ -135,7 +135,7 @@ All settings are in `/etc/starnav.conf` (INI format).
 |-----|---------|-------------|
 | `csv_dir` | `/root/starlink_logs` | CSV log file directory |
 | `csv_enabled` | `true` | Enable/disable CSV flight logging |
-| `max_log_size_mb` | `100` | Max total CSV folder size (oldest logs auto-deleted) |
+| `max_log_size_mb` | `20` | Max total CSV folder size (oldest logs auto-deleted) |
 
 ### [hud]
 
@@ -236,6 +236,56 @@ npm run build        # production build to ../www/
 | `MISSION_CURRENT` | Current waypoint number |
 | `NAV_CONTROLLER_OUTPUT` | Waypoint distance, crosstrack error, nav/target bearing |
 | `VIBRATION` | Vibration levels (x/y/z) |
+
+## System Health & Logging
+
+StarNav includes adaptive resource management to prevent storage exhaustion on resource-constrained routers. Running out of flash storage causes an unrecoverable boot loop on OpenWRT.
+
+### Dynamic Log Rotation
+
+The main process (`starnav.py`) monitors `/overlay` free space and adjusts CSV log caps automatically:
+
+| Flash Free | Mode | Log Cap | Action |
+|-----------|------|---------|--------|
+| > 20 MB | Normal | Configured cap (20 MB default) | Full history retention |
+| < 20 MB | Low | 256 KB | Warning to syslog, 10s cleanup interval |
+| < 5 MB | Critical | 64 KB | Emergency delete all logs except current, syslog error |
+| < 2 MB | Emergency | 0 (disabled) | CSV logging disabled entirely to prevent boot loop |
+
+Per-file size guard: active CSV files are rotated when they exceed the dynamic cap, not just at cleanup intervals.
+
+### Throttled Polling
+
+- Status file: written at 2 Hz to `/tmp` (RAM, not flash)
+- CSV flush: every 2 seconds (balances data safety vs syscall overhead)
+- Log cleanup: every 60s normally, every 10s when flash < 20 MB free
+
+### SSE Stream Safety
+
+- Log stream (`logs.cgi`): auto-killed after 5 minutes, process group cleanup on disconnect
+- Status stream (`status-stream.cgi`): auto-killed after 5 minutes
+- Browser reconnects automatically via `retry: 3000` — no user-visible disruption
+
+### Watchdog (cron)
+
+Installed by `install.sh`, runs every minute via cron (`/etc/starnav-watchdog.sh`):
+
+- Monitors flash free space, logs warnings/errors to syslog
+- Kills orphaned `logread`/`grep` processes (parent PID = 1, from closed SSE connections)
+- Cleans stale temp files older than 1 hour
+
+### Monitored Files on /tmp
+
+| File | Type | Growth | Cap |
+|------|------|--------|-----|
+| `starnav_status.json` | Overwrite (atomic) | ~1 KB fixed | N/A |
+| `starnav-watchdog.lock` | Lock file | 0 | N/A |
+
+### Monitored Files on Flash
+
+| File | Type | Growth | Cap |
+|------|------|--------|-----|
+| `/root/starlink_logs/StarNav_*.csv` | Append (per-session) | ~1 line/0.2s | Dynamic (see table above) |
 
 ## Logs and Diagnostics
 

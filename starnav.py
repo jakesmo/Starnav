@@ -57,29 +57,89 @@ SEND_RATE_DEGRADED = config.getfloat("rates", "send_rate_degraded", fallback=2.0
 # Logging
 CSV_DIR = config.get("logging", "csv_dir", fallback=".")
 CSV_ENABLED = config.getboolean("logging", "csv_enabled", fallback=True)
-MAX_LOG_SIZE_BYTES = config.getfloat("logging", "max_log_size_mb", fallback=100.0) * 1024 * 1024
+MAX_LOG_SIZE_BYTES = config.getfloat("logging", "max_log_size_mb", fallback=20.0) * 1024 * 1024
 CSV_FILE = os.path.join(
     CSV_DIR,
     "StarNav_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".csv"
 )
 
-def enforce_log_limit():
-    """Delete oldest StarNav CSV logs until folder is under MAX_LOG_SIZE_BYTES."""
+def get_overlay_free_kb():
+    """Return free KB on /overlay (flash). Returns 999999 if not on OpenWRT."""
+    try:
+        st = os.statvfs("/overlay")
+        return (st.f_bavail * st.f_frsize) // 1024
+    except OSError:
+        return 999999
+
+
+def enforce_log_limit(current_csv=None):
+    """Delete oldest StarNav CSV logs using dynamic caps based on flash free space.
+
+    Matches RVR watchdog thresholds:
+      >= 20MB free  → configured MAX_LOG_SIZE_BYTES (normal)
+      <  20MB free  → 256 KB cap, syslog warning
+      <   5MB free  →  64 KB cap, emergency cleanup, syslog error
+      <   2MB free  → disable CSV logging entirely
+    """
+    global CSV_ENABLED, _csv_writer, _csv_file
+
+    flash_free_kb = get_overlay_free_kb()
+
+    # Dynamic cap matching RVR thresholds
+    if flash_free_kb < 2048:
+        # EMERGENCY: disable CSV logging to prevent boot loop
+        if CSV_ENABLED:
+            print(f"EMERGENCY: {flash_free_kb}KB flash free — disabling CSV logging")
+            CSV_ENABLED = False
+            if _csv_file:
+                try:
+                    _csv_file.close()
+                except OSError:
+                    pass
+                _csv_file = None
+                _csv_writer = None
+        effective_cap = 0
+    elif flash_free_kb < 5120:
+        effective_cap = 64 * 1024  # 64KB — critical
+        print(f"CRITICAL: {flash_free_kb}KB flash free — aggressive log rotation")
+    elif flash_free_kb < 20480:
+        effective_cap = 256 * 1024  # 256KB — low space
+        print(f"WARNING: {flash_free_kb}KB flash free — reduced log cap")
+    else:
+        effective_cap = MAX_LOG_SIZE_BYTES  # normal operation
+
     try:
         logs = sorted(
             (f for f in os.listdir(CSV_DIR) if f.startswith("StarNav_") and f.endswith(".csv")),
             key=lambda f: os.path.getmtime(os.path.join(CSV_DIR, f))
         )
         total = sum(os.path.getsize(os.path.join(CSV_DIR, f)) for f in logs)
-        while total > MAX_LOG_SIZE_BYTES and len(logs) > 1:
-            oldest = logs.pop(0)
-            path = os.path.join(CSV_DIR, oldest)
-            size = os.path.getsize(path)
-            os.remove(path)
-            total -= size
-            print(f"Deleted old log: {oldest} ({size / 1024:.0f} KB)")
+
+        # At critical/emergency, delete all except the current file
+        if flash_free_kb < 5120:
+            for f in logs:
+                path = os.path.join(CSV_DIR, f)
+                if current_csv and os.path.samefile(path, current_csv):
+                    continue
+                try:
+                    size = os.path.getsize(path)
+                    os.remove(path)
+                    total -= size
+                    print(f"Emergency delete: {f} ({size / 1024:.0f} KB)")
+                except OSError:
+                    pass
+        else:
+            while total > effective_cap and len(logs) > 1:
+                oldest = logs.pop(0)
+                path = os.path.join(CSV_DIR, oldest)
+                size = os.path.getsize(path)
+                os.remove(path)
+                total -= size
+                print(f"Deleted old log: {oldest} ({size / 1024:.0f} KB)")
     except OSError as e:
         print(f"Log cleanup error: {e}")
+
+    return effective_cap
 
 # -------------------------
 # Imports requiring PYTHONPATH
@@ -408,12 +468,13 @@ if CSV_ENABLED:
     ])
     _csv_file.flush()
     print(f"Logging to {CSV_FILE}")
-    enforce_log_limit()
+    enforce_log_limit(current_csv=CSV_FILE)
 else:
     print("CSV logging disabled")
 
 star_unc_prev = None
 _last_log_cleanup = 0
+_effective_log_cap = MAX_LOG_SIZE_BYTES  # updated by enforce_log_limit()
 _last_send_time = 0.0
 _last_send_epoch = 0.0
 _last_heartbeat_time = 0.0
@@ -642,6 +703,33 @@ try:
 
             # ---- Log to CSV ----
             if CSV_ENABLED and _csv_writer:
+                # Per-file size guard: rotate if active file exceeds dynamic cap
+                if _effective_log_cap > 0:
+                    try:
+                        cur_size = os.path.getsize(CSV_FILE)
+                        if cur_size > _effective_log_cap:
+                            _csv_file.close()
+                            CSV_FILE = os.path.join(
+                                CSV_DIR,
+                                "StarNav_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + ".csv"
+                            )
+                            _csv_file = open(CSV_FILE, "w", newline="")
+                            _csv_writer = csv.writer(_csv_file)
+                            _csv_writer.writerow([
+                                "Date", "Time",
+                                "GPS Lat", "GPS Lon", "GPS Alt (m)",
+                                "EKF Lat", "EKF Lon", "EKF Alt (m)",
+                                "Starlink Lat", "Starlink Lon", "Starlink Alt (m)",
+                                "Roll (deg)", "Pitch (deg)", "Yaw (deg)",
+                                "3D Accuracy (m)", "Starlink Uncertainty (m, 99%)",
+                                "Correction", "Quality OK", "Position Stale", "EKF Source",
+                            ])
+                            _csv_file.flush()
+                            print(f"Rotated CSV: {CSV_FILE}")
+                            _effective_log_cap = enforce_log_limit(current_csv=CSV_FILE)
+                    except OSError:
+                        pass
+
                 _csv_writer.writerow([
                     timestamp.strftime("%Y-%m-%d"),
                     timestamp.strftime("%H:%M:%S.%f")[:-3],
@@ -656,9 +744,11 @@ try:
                 if now_monotonic - _last_csv_flush > 2:
                     _csv_file.flush()
                     _last_csv_flush = now_monotonic
-                if now_monotonic - _last_log_cleanup > 60:
+                # Adaptive cleanup interval: 10s when low on space, 60s normally
+                cleanup_interval = 10 if get_overlay_free_kb() < 20480 else 60
+                if now_monotonic - _last_log_cleanup > cleanup_interval:
                     _last_log_cleanup = now_monotonic
-                    enforce_log_limit()
+                    _effective_log_cap = enforce_log_limit(current_csv=CSV_FILE)
 
             # ACK acceptance rate
             ack_accept_rate = (sum(ack_history) / len(ack_history) * 100) if ack_history else 0.0
