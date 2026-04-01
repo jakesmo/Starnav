@@ -3,12 +3,14 @@ import {
   Viewer,
   Cartesian3,
   Color,
-  PointPrimitiveCollection,
-  LabelCollection,
   PolylineCollection,
+  Material,
+  Entity,
   Cartesian2,
   NearFarScalar,
-  Material,
+  ScreenSpaceEventHandler,
+  ScreenSpaceEventType,
+  defined,
 } from "cesium";
 import type { SatPosition } from "../../hooks/useSatellites";
 import type { CameraMode } from "./CesiumScene";
@@ -20,57 +22,65 @@ interface SatelliteLayerProps {
   cameraMode: CameraMode;
 }
 
-/**
- * Renders Starlink satellites as labeled dots (both views)
- * and link lines from aircraft to satellites (third-person only).
- */
+// SpaceX standard satellite colors
+const SAT_COLOR = Color.fromCssColorString("rgba(200, 200, 210, 0.9)");  // white/grey
+const SAT_ACTIVE_COLOR = Color.WHITE;
+const LABEL_COLOR = Color.fromCssColorString("rgba(220, 220, 230, 0.85)");
+
 export default function SatelliteLayer({
   viewer,
   satellites,
   aircraftPosition,
   cameraMode,
 }: SatelliteLayerProps) {
-  const pointsRef = useRef<PointPrimitiveCollection | null>(null);
-  const labelsRef = useRef<LabelCollection | null>(null);
+  const entitiesRef = useRef<Entity[]>([]);
   const linesRef = useRef<PolylineCollection | null>(null);
+  const handlerRef = useRef<ScreenSpaceEventHandler | null>(null);
 
-  // Create/destroy primitive collections when viewer is available
+  // Set up hover handler for label show/hide
   useEffect(() => {
     if (!viewer) return;
 
-    const points = new PointPrimitiveCollection();
-    const labels = new LabelCollection();
+    const handler = new ScreenSpaceEventHandler(viewer.scene.canvas as HTMLCanvasElement);
+
+    handler.setInputAction((movement: { endPosition: Cartesian2 }) => {
+      const picked = viewer.scene.pick(movement.endPosition);
+      // Hide all labels, show only hovered
+      for (const entity of entitiesRef.current) {
+        if (entity.label) {
+          entity.label.show = defined(picked) && picked.id === entity ? true as any : false as any;
+        }
+      }
+    }, ScreenSpaceEventType.MOUSE_MOVE);
+
+    handlerRef.current = handler;
+
     const lines = new PolylineCollection();
-
-    viewer.scene.primitives.add(points);
-    viewer.scene.primitives.add(labels);
     viewer.scene.primitives.add(lines);
-
-    pointsRef.current = points;
-    labelsRef.current = labels;
     linesRef.current = lines;
 
     return () => {
-      viewer.scene.primitives.remove(points);
-      viewer.scene.primitives.remove(labels);
-      viewer.scene.primitives.remove(lines);
-      pointsRef.current = null;
-      labelsRef.current = null;
-      linesRef.current = null;
+      handler.destroy();
+      handlerRef.current = null;
+      if (linesRef.current) {
+        viewer.scene.primitives.remove(linesRef.current);
+        linesRef.current = null;
+      }
     };
   }, [viewer]);
 
-  // Update satellite positions when data changes
+  // Update satellite entities when data changes
   useEffect(() => {
-    const points = pointsRef.current;
-    const labels = labelsRef.current;
-    const lines = linesRef.current;
-    if (!points || !labels || !lines) return;
+    if (!viewer) return;
 
-    // Clear previous
-    points.removeAll();
-    labels.removeAll();
-    lines.removeAll();
+    // Remove old entities
+    for (const entity of entitiesRef.current) {
+      viewer.entities.remove(entity);
+    }
+    entitiesRef.current = [];
+
+    // Clear link lines
+    if (linesRef.current) linesRef.current.removeAll();
 
     if (satellites.length === 0) return;
 
@@ -80,39 +90,36 @@ export default function SatelliteLayer({
       aircraftPosition.alt,
     );
 
-    // First satellite in array has highest dish alignment (sorted in useSatellites)
     const activeSatName = satellites.length > 0 ? satellites[0].name : "";
 
     for (const sat of satellites) {
       const satPos = Cartesian3.fromDegrees(sat.lon, sat.lat, sat.altKm * 1000);
       const isActive = sat.name === activeSatName;
-
-      // Point dot (both views)
-      points.add({
-        position: satPos,
-        pixelSize: isActive ? 5 : 3,
-        color: isActive
-          ? Color.CYAN
-          : Color.fromCssColorString("rgba(0, 255, 100, 0.8)"),
-      });
-
-      // Label (both views)
       const shortName = sat.name.replace("STARLINK-", "SL-");
-      labels.add({
+
+      const entity = viewer.entities.add({
         position: satPos,
-        text: shortName,
-        font: "10px monospace",
-        fillColor: isActive
-          ? Color.CYAN
-          : Color.fromCssColorString("rgba(0, 255, 100, 0.6)"),
-        pixelOffset: new Cartesian2(6, 0),
-        scaleByDistance: new NearFarScalar(1e6, 1.0, 1e8, 0.3),
-        showBackground: false,
+        point: {
+          pixelSize: isActive ? 5 : 3,
+          color: isActive ? SAT_ACTIVE_COLOR : SAT_COLOR,
+          scaleByDistance: new NearFarScalar(1e6, 1.0, 1e8, 0.3),
+        },
+        label: {
+          text: shortName,
+          font: "10px monospace",
+          fillColor: LABEL_COLOR,
+          pixelOffset: new Cartesian2(6, 0),
+          scaleByDistance: new NearFarScalar(1e6, 1.0, 1e8, 0.3),
+          showBackground: true,
+          backgroundColor: Color.fromCssColorString("rgba(0, 0, 0, 0.6)"),
+          show: false as any, // hidden by default, shown on hover
+        },
       });
+      entitiesRef.current.push(entity);
 
       // Link lines (third-person only)
-      if (cameraMode === "third-person") {
-        lines.add({
+      if (cameraMode === "third-person" && linesRef.current) {
+        linesRef.current.add({
           positions: [acPos, satPos],
           width: isActive ? 3 : 1,
           material: Material.fromType("Color", {
@@ -123,7 +130,7 @@ export default function SatelliteLayer({
         });
       }
     }
-  }, [satellites, aircraftPosition, cameraMode]);
+  }, [viewer, satellites, aircraftPosition, cameraMode]);
 
-  return null; // Rendering handled by Cesium primitives
+  return null;
 }
