@@ -18,6 +18,8 @@ import {
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import type { AttitudeStore } from "../../hooks/useAttitude";
 import { smooth } from "../../hooks/useAttitude";
+import type { SatPosition } from "../../hooks/useSatellites";
+import SatelliteLayer from "./SatelliteLayer";
 
 export type CameraMode = "first-person" | "third-person" | "free-look";
 
@@ -28,12 +30,14 @@ interface CesiumSceneProps {
   attitudeStore: React.RefObject<AttitudeStore | null>;
   isActive: boolean;
   cameraMode: CameraMode;
+  satellites: SatPosition[];
 }
 
 export default function CesiumScene({
   attitudeStore,
   isActive,
   cameraMode,
+  satellites,
 }: CesiumSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
@@ -264,11 +268,25 @@ export default function CesiumScene({
 
   const allowPointerEvents = cameraMode !== "first-person";
 
+  // Get latest smoothed position for satellite layer
+  const store = attitudeStore.current;
+  const acPos = store
+    ? { lat: store.smoothed.lat, lon: store.smoothed.lon, alt: store.smoothed.alt }
+    : { lat: 0, lon: 0, alt: 0 };
+
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0"
-      style={{ pointerEvents: allowPointerEvents ? "auto" : "none" }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        className="absolute inset-0"
+        style={{ pointerEvents: allowPointerEvents ? "auto" : "none" }}
+      />
+      <SatelliteLayer
+        viewer={viewerRef.current}
+        satellites={satellites}
+        aircraftPosition={acPos}
+        cameraMode={cameraMode}
+      />
+    </>
   );
 }

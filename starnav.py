@@ -9,6 +9,7 @@ import os
 import sys
 import signal
 import json
+import urllib.request
 from collections import deque
 
 # -------------------------
@@ -193,6 +194,33 @@ def get_flight_mode_name(vtype, cmode):
     """Resolve ArduPilot custom_mode to human-readable name."""
     table = MODE_TABLES.get(vtype, PLANE_MODES)
     return table.get(cmode, f"MODE_{cmode}")
+
+# -------------------------
+# Starlink TLE fetch (for satellite visualization)
+# -------------------------
+TLE_FILE = "/tmp/starlink_tle.json"
+TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle"
+_last_tle_fetch = 0.0
+TLE_REFRESH_INTERVAL = 6 * 3600  # 6 hours
+
+def fetch_starlink_tles():
+    """Fetch Starlink TLE data from CelesTrak and write to JSON file."""
+    global _last_tle_fetch
+    try:
+        data = urllib.request.urlopen(TLE_URL, timeout=30).read().decode()
+        lines = [l.strip() for l in data.strip().split("\n") if l.strip()]
+        sats = []
+        for i in range(0, len(lines) - 2, 3):
+            sats.append({"name": lines[i], "line1": lines[i+1], "line2": lines[i+2]})
+        tmp = TLE_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(sats, f)
+        os.replace(tmp, TLE_FILE)
+        _last_tle_fetch = time.monotonic()
+        print(f"TLE: fetched {len(sats)} Starlink satellites")
+    except Exception as e:
+        print(f"TLE fetch failed (non-fatal): {e}")
+        _last_tle_fetch = time.monotonic()  # don't retry immediately
 
 # Minimum plausible epoch (2024-01-01 UTC) to detect unsynced RTC
 MIN_SANE_EPOCH = 1704067200.0
@@ -897,6 +925,10 @@ try:
                 "flight_mode": get_flight_mode_name(vehicle_type, custom_mode),
                 "ekf_aiding": ekf_aiding,
             })
+
+        # Periodic TLE fetch for satellite visualization (every 6h)
+        if now_monotonic - _last_tle_fetch >= TLE_REFRESH_INTERVAL:
+            fetch_starlink_tles()
 
         # Write high-rate attitude file for HUD (10Hz)
         if now_monotonic - _last_attitude_write >= 0.1:

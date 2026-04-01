@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import type { PositionData } from "../api/types";
 import { useAttitude } from "../hooks/useAttitude";
+import { useSatellites } from "../hooks/useSatellites";
 import CesiumScene from "./hud/CesiumScene";
 import type { CameraMode } from "./hud/CesiumScene";
 import HudOverlay from "./hud/HudOverlay";
@@ -63,6 +64,17 @@ export default function HudView({ position, isActive }: HudViewProps) {
   const shouldRender = isActive && browserVisible && connected;
   const attitudeStore = useAttitude(shouldRender);
 
+  // Satellite tracking — use position from useStatus (1-2Hz is fine for sat propagation)
+  const acLat = position?.ekf?.lat ?? position?.gps?.lat ?? 0;
+  const acLon = position?.ekf?.lon ?? position?.gps?.lon ?? 0;
+  const acAlt = position?.ekf?.alt ?? position?.gps?.alt ?? 0;
+  const acRoll = position?.attitude?.roll ?? 0;
+  const acPitch = position?.attitude?.pitch ?? 0;
+  const acYaw = position?.attitude?.yaw ?? 0;
+  const { satellites } = useSatellites(
+    acLat, acLon, acAlt, acRoll, acPitch, acYaw, shouldRender,
+  );
+
   if (!connected) {
     return (
       <div className="relative w-full h-full bg-black overflow-hidden rounded-lg flex items-center justify-center">
@@ -89,6 +101,7 @@ export default function HudView({ position, isActive }: HudViewProps) {
         attitudeStore={attitudeStore}
         isActive={shouldRender}
         cameraMode={cameraMode}
+        satellites={satellites}
       />
 
       {/* First-person: full HUD overlay */}
