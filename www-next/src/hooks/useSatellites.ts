@@ -17,6 +17,12 @@ export interface SatPosition {
   elevation: number;
   /** Alignment with dish normal (0-1, higher = more perpendicular) */
   dishAlignment: number;
+  /** Orbital velocity in km/s (derived from altitude) */
+  orbitalVelocityKmS: number;
+  /** Seconds since satellite crossed true horizon (0° elevation) */
+  timeAboveHorizonS: number | null;
+  /** Estimated seconds until satellite drops below true horizon */
+  estimatedRemainingS: number | null;
 }
 
 interface TleEntry {
@@ -87,14 +93,30 @@ export function useSatellites(
   const [satellites, setSatellites] = useState<SatPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const satrecsRef = useRef<{ name: string; satrec: ReturnType<typeof twoline2satrec> }[]>([]);
+  // Track when each satellite crossed true horizon (0° elevation) for time-above calculation
+  const horizonCrossingRef = useRef<Map<string, number>>(new Map()); // name → timestamp ms
 
-  // Fetch TLE data once
+  // Fetch TLE data once — try backend first, fall back to CelesTrak direct
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
 
-    fetch("/cgi-bin/tle.cgi")
-      .then((r) => r.json())
+    async function fetchTles(): Promise<TleEntry[]> {
+      // Try backend cache first (for offline/air-gapped operation)
+      try {
+        const res = await fetch("/cgi-bin/tle.cgi");
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) return data;
+      } catch { /* backend failed */ }
+
+      // Fetch from GitHub data repo (CORS-enabled, updated every 2h by Actions)
+      const res = await fetch(
+        "https://raw.githubusercontent.com/jack7169/starnav-data/main/tle/starlink.json",
+      );
+      return res.json();
+    }
+
+    fetchTles()
       .then((data: TleEntry[]) => {
         if (cancelled) return;
         const recs = data
@@ -150,6 +172,15 @@ export function useSatellites(
             lat, lon, altKm * 1000,
           );
 
+          // Track true horizon crossing (0°) for time-above calculation
+          const nowMs = Date.now();
+          const prevCrossing = horizonCrossingRef.current.get(name.trim());
+          if (angle.elevation >= 0 && !prevCrossing) {
+            horizonCrossingRef.current.set(name.trim(), nowMs);
+          } else if (angle.elevation < 0 && prevCrossing) {
+            horizonCrossingRef.current.delete(name.trim());
+          }
+
           // Hide satellites below 10° elevation (near horizon, visually behind earth)
           if (angle.elevation < 10) continue;
 
@@ -163,12 +194,35 @@ export function useSatellites(
           const dishU = -dishD;
           const alignment = Math.abs(dishE * satE + dishN * satN + dishU * satU);
 
+          // Orbital velocity: v = sqrt(GM / r) where GM = 3.986e14 m³/s², r in meters
+          const GM = 3.986004418e14;
+          const rMeters = (6371 + altKm) * 1000;
+          const orbitalVelocityKmS = Math.sqrt(GM / rMeters) / 1000;
+
+          // Time above horizon
+          const crossingTime = horizonCrossingRef.current.get(name.trim());
+          const timeAboveHorizonS = crossingTime != null ? (nowMs - crossingTime) / 1000 : null;
+
+          // Estimated remaining: approximate visible pass duration from orbital geometry
+          // For LEO (~550km), max visible duration ~8min. Estimate remaining from elevation curve.
+          // Simple model: pass is roughly sinusoidal, so remaining ≈ total * (1 - progress)
+          // where progress ≈ timeAbove / estimatedTotal
+          const orbitPeriodS = 2 * Math.PI * Math.sqrt(rMeters * rMeters * rMeters / GM);
+          const maxVisibleFraction = 0.08; // ~8% of orbit visible from ground for LEO
+          const estimatedPassDurationS = orbitPeriodS * maxVisibleFraction;
+          const estimatedRemainingS = timeAboveHorizonS != null
+            ? Math.max(0, estimatedPassDurationS - timeAboveHorizonS)
+            : null;
+
           results.push({
             name: name.trim(),
             lat, lon, altKm,
             azimuth: angle.azimuth,
             elevation: angle.elevation,
             dishAlignment: alignment,
+            orbitalVelocityKmS,
+            timeAboveHorizonS,
+            estimatedRemainingS,
           });
         } catch {
           // Skip failed propagations

@@ -123,7 +123,7 @@ export default function SettingsPage() {
         thresholds: { uncertainty_limit: 200, min_stable_time: 3, accuracy_jump_threshold: 1.5, staleness_timeout: 3 },
         rates: { send_rate_active: 0.5, send_rate_passive: 1.0, send_rate_degraded: 2.0 },
         logging: { csv_enabled: true, max_log_size_mb: 100 },
-        hud: { update_rate_hz: 2 },
+        hud: { update_rate_hz: 2, altitude_source: "relative", altitude_unit: "m" },
       };
       const safe: ConfigData = {
         starlink: { ...defaults.starlink, ...data.starlink },
@@ -394,6 +394,26 @@ export default function SettingsPage() {
                   <option value={2}>2 Hz (default)</option>
                   <option value={5}>5 Hz</option>
                   <option value={10}>10 Hz</option>
+                </select>
+              </FieldRow>
+              <FieldRow label="Altitude Source">
+                <select
+                  value={config.hud?.altitude_source ?? "relative"}
+                  onChange={(e) => update("hud", "altitude_source", e.target.value)}
+                  className="bg-bg-primary border border-border rounded px-2 py-1 text-sm text-text-primary"
+                >
+                  <option value="relative">Relative to home (default)</option>
+                  <option value="msl">MSL (mean sea level)</option>
+                </select>
+              </FieldRow>
+              <FieldRow label="Altitude Unit">
+                <select
+                  value={config.hud?.altitude_unit ?? "m"}
+                  onChange={(e) => update("hud", "altitude_unit", e.target.value)}
+                  className="bg-bg-primary border border-border rounded px-2 py-1 text-sm text-text-primary"
+                >
+                  <option value="m">Meters (default)</option>
+                  <option value="ft">Feet</option>
                 </select>
               </FieldRow>
             </div>

@@ -148,7 +148,7 @@ export default function MapView({ position }: MapViewProps) {
 
       <MapContainer
         center={center}
-        zoom={hasPosition ? 17 : 2}
+        zoom={hasPosition ? 18 : 2}
         className="flex-1 w-full min-h-0"
         zoomControl={true}
         attributionControl={true}

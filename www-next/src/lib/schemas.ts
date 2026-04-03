@@ -39,6 +39,8 @@ export const loggingSection = z.object({
 
 export const hudSection = z.object({
   update_rate_hz: z.coerce.number().min(1).max(10),
+  altitude_source: z.enum(["relative", "msl"]).optional(),
+  altitude_unit: z.enum(["m", "ft"]).optional(),
 });
 
 export const configSchema = z.object({

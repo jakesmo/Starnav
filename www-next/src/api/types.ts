@@ -82,6 +82,14 @@ export interface PositionData {
   gps_sats?: number | null;
   gps_hdop?: number | null;
   ekf_aiding?: string | null;
+  ekf_detail?: {
+    flags: number;
+    vel_var: number | null;
+    pos_horiz_var: number | null;
+    pos_vert_var: number | null;
+    compass_var: number | null;
+    terrain_var: number | null;
+  };
 }
 
 export interface StatusResponse {
@@ -127,6 +135,8 @@ export interface ConfigData {
   };
   hud: {
     update_rate_hz: number;
+    altitude_source?: string;
+    altitude_unit?: string;
   };
 }
 

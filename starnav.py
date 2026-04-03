@@ -200,14 +200,15 @@ def get_flight_mode_name(vtype, cmode):
 # -------------------------
 TLE_FILE = "/tmp/starlink_tle.json"
 TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle"
-_last_tle_fetch = 0.0
+_last_tle_fetch = -999999.0  # trigger immediate fetch on first loop
 TLE_REFRESH_INTERVAL = 6 * 3600  # 6 hours
 
 def fetch_starlink_tles():
     """Fetch Starlink TLE data from CelesTrak and write to JSON file."""
     global _last_tle_fetch
     try:
-        data = urllib.request.urlopen(TLE_URL, timeout=30).read().decode()
+        req = urllib.request.Request(TLE_URL, headers={"User-Agent": "StarNav/1.2"})
+        data = urllib.request.urlopen(req, timeout=30).read().decode()
         lines = [l.strip() for l in data.strip().split("\n") if l.strip()]
         sats = []
         for i in range(0, len(lines) - 2, 3):
@@ -578,6 +579,10 @@ try:
 
     # EKF aiding state (derived from EKF_STATUS_REPORT flags)
     ekf_aiding = "NONE"  # "ABSOLUTE", "RELATIVE", "NONE"
+    ekf_vel_var = float("nan")
+    ekf_pos_vert_var = float("nan")
+    ekf_compass_var = float("nan")
+    ekf_terrain_var = float("nan")
 
     # ACK tracking (rolling window)
     ack_history = deque(maxlen=20)  # True=accepted, False=rejected
@@ -686,6 +691,10 @@ try:
                 elif msg_type == "EKF_STATUS_REPORT":
                     ekf_flags = msg.flags
                     ekf_pos_var = msg.pos_horiz_variance
+                    ekf_vel_var = msg.velocity_variance
+                    ekf_pos_vert_var = msg.pos_vert_variance
+                    ekf_compass_var = msg.compass_variance
+                    ekf_terrain_var = msg.terrain_alt_variance
                     ekf_const_pos = bool(ekf_flags & 128)
                     # Derive aiding state from flags
                     if ekf_flags & (1 << 4):      # pos horiz absolute OK
@@ -694,6 +703,12 @@ try:
                         ekf_aiding = "RELATIVE"
                     else:
                         ekf_aiding = "NONE"
+                    # Derive EKF source only if still unknown (STATUSTEXT is authoritative)
+                    if ekf_source == "unknown":
+                        if gps_fix_type >= 3 and ekf_aiding == "ABSOLUTE":
+                            ekf_source = "gps"
+                        elif ekf_aiding == "NONE":
+                            ekf_source = "none"
                     if ekf_const_pos and ekf_source == "extpos":
                         print("!! WARNING: EKF in const_pos_mode while we are active source !!")
                 elif msg_type == "VFR_HUD":
@@ -924,6 +939,14 @@ try:
                 "vibration": {"x": vibe_x, "y": vibe_y, "z": vibe_z},
                 "flight_mode": get_flight_mode_name(vehicle_type, custom_mode),
                 "ekf_aiding": ekf_aiding,
+                "ekf_detail": {
+                    "flags": ekf_flags,
+                    "vel_var": round(ekf_vel_var, 3) if not math.isnan(ekf_vel_var) else None,
+                    "pos_horiz_var": round(ekf_pos_var, 3) if not math.isnan(ekf_pos_var) else None,
+                    "pos_vert_var": round(ekf_pos_vert_var, 3) if not math.isnan(ekf_pos_vert_var) else None,
+                    "compass_var": round(ekf_compass_var, 3) if not math.isnan(ekf_compass_var) else None,
+                    "terrain_var": round(ekf_terrain_var, 3) if not math.isnan(ekf_terrain_var) else None,
+                },
             })
 
         # Periodic TLE fetch for satellite visualization (every 6h)
@@ -934,9 +957,10 @@ try:
         if now_monotonic - _last_attitude_write >= 0.1:
             _last_attitude_write = now_monotonic
             # Use EKF position (best estimate), fallback GPS, then Starlink
-            att_lat = ekf_lat if not math.isnan(ekf_lat) else (gps_lat if not math.isnan(gps_lat) else star_lat)
-            att_lon = ekf_lon if not math.isnan(ekf_lon) else (gps_lon if not math.isnan(gps_lon) else star_lon)
-            att_alt = ekf_alt if not math.isnan(ekf_alt) else (gps_alt if not math.isnan(gps_alt) else star_alt)
+            # EKF is the sole data source for HUD rendering — no fallbacks
+            att_lat = ekf_lat
+            att_lon = ekf_lon
+            att_alt = ekf_alt
             try:
                 att_json = json.dumps({
                     "lat": round(att_lat, 7) if not math.isnan(att_lat) else None,
@@ -949,6 +973,7 @@ try:
                     "groundspeed": round(groundspeed, 1) if not math.isnan(groundspeed) else None,
                     "heading": heading_vfr,
                     "climb": round(climb_rate, 1) if not math.isnan(climb_rate) else None,
+                    "relative_alt": round(relative_alt_m, 2),
                     "t": int(time.time() * 1000),
                 })
                 tmp = ATTITUDE_STATUS_FILE + ".tmp"
