@@ -2,13 +2,20 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import cesium from 'vite-plugin-cesium'
+import path from 'path'
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), cesium()],
+  resolve: {
+    alias: {
+      '@update': path.resolve(__dirname, 'src/shared-update'),
+      '@app': path.resolve(__dirname, 'src'),
+    },
+  },
   server: {
     proxy: {
       '/cgi-bin': {
-        target: 'http://100.113.240.15:8082',
+        target: 'http://localhost:8082',
         changeOrigin: true,
       },
     },

@@ -12,6 +12,11 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@update/*": ["src/shared-update/*"],
+      "@app/*": ["src/*"]
+    },
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

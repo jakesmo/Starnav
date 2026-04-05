@@ -3,7 +3,7 @@ import { Pause, Play, Trash2 } from "lucide-react";
 import { useLogStream } from "../hooks/useLogStream";
 import Card from "./ui/Card";
 import Badge from "./ui/Badge";
-import Button from "./ui/Button";
+import { Button } from "./ui/Button";
 import { cn } from "../lib/utils";
 
 const levelColors: Record<string, string> = {

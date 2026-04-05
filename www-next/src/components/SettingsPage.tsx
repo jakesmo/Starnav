@@ -5,7 +5,7 @@ import { readConfig, writeConfig, executeCommand } from "../api/client";
 import { configSchema } from "../lib/schemas";
 import type { ConfigData } from "../api/types";
 import Card from "./ui/Card";
-import Button from "./ui/Button";
+import { Button } from "./ui/Button";
 
 function FieldRow({
   label,

@@ -9,7 +9,7 @@ interface ModalProps {
   wide?: boolean;
 }
 
-export default function Modal({ open, onClose, title, children, wide }: ModalProps) {
+export function Modal({ open, onClose, title, children, wide }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

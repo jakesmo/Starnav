@@ -1,11 +1,12 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useStatus } from "./hooks/useStatus";
 import { useLinkStats } from "./hooks/useLinkStats";
 import { fetchVersion } from "./api/client";
 import Header from "./components/Header";
 import type { AppTab } from "./components/Header";
-import UpdateBanner from "./components/UpdateBanner";
+import { UpdateBanner } from "@update/UpdateBanner";
+import { useUpdateState } from "@update/useUpdateState";
 import StartupBanner from "./components/StartupBanner";
 import StatusCards from "./components/StatusCards";
 import MapView from "./components/MapView";
@@ -15,7 +16,9 @@ import FlightLogs from "./components/FlightLogs";
 const SettingsPage = lazy(() => import("./components/SettingsPage"));
 const HelpPage = lazy(() => import("./components/HelpPage"));
 const HudView = lazy(() => import("./components/HudView"));
-const UpdateModal = lazy(() => import("./components/UpdateModal"));
+const UpdateModal = lazy(() =>
+  import("@update/UpdateModal").then((m) => ({ default: m.UpdateModal })),
+);
 
 function LoadingFallback() {
   return (
@@ -29,14 +32,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>("map");
   const { status, isConnected, receivedAt } = useStatus();
   const linkStats = useLinkStats();
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
-  const [suppressBanner, setSuppressBanner] = useState(() => {
-    try {
-      return sessionStorage.getItem("update-just-applied") === "1";
-    } catch {
-      return false;
-    }
-  });
 
   const {
     data: version,
@@ -48,15 +43,8 @@ export default function App() {
     retry: 1,
   });
 
-  // Clear suppression once version confirms no update pending
-  useEffect(() => {
-    if (suppressBanner && version && !version.update_available) {
-      setSuppressBanner(false);
-      try {
-        sessionStorage.removeItem("update-just-applied");
-      } catch {}
-    }
-  }, [suppressBanner, version]);
+  const update = useUpdateState(version);
+
 
   return (
     <div className="min-h-screen bg-bg-primary">
@@ -69,21 +57,22 @@ export default function App() {
         onVersionRefresh={() => refetchVersion()}
       />
 
-      {version?.update_available && !suppressBanner && (
+      {update.showBanner && update.updateSeen && (
         <UpdateBanner
-          current={version.commit}
-          latest={version.remote_commit || "unknown"}
-          branch={version.branch || "main"}
-          onUpdate={() => setUpdateModalOpen(true)}
-          onRefresh={() => refetchVersion()}
+          current={version?.current ?? ""}
+          latest={update.updateSeen.latest}
+          branch={update.updateSeen.branch}
+          onUpdate={() => update.setUpdateModalOpen(true)}
+          onDismiss={update.dismissBanner}
+          onCheckResult={update.handleCheckResult}
         />
       )}
 
       {version && (
         <Suspense fallback={null}>
           <UpdateModal
-            open={updateModalOpen}
-            onClose={() => setUpdateModalOpen(false)}
+            open={update.updateModalOpen}
+            onClose={() => update.setUpdateModalOpen(false)}
             version={version}
           />
         </Suspense>

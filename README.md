@@ -260,7 +260,7 @@ npm run build        # production build to ../www/
 
 ## Update System
 
-Branch-aware update management matching the RVR pattern.
+Branch-aware update management using shared libraries from `shared/update/` (identical code runs in both Starnav and RVR).
 
 ### Version Tracking
 
@@ -377,15 +377,17 @@ starnav.sh                  Startup wrapper (config, NTP, dish GPS control)
 starnav.init                OpenWRT procd service definition
 starnav.conf                Configuration file (INI format)
 install.sh                  Installer + uninstaller (wget one-liner supported)
+shared/update/              Shared update libraries (identical code in RVR)
+  backend/                  POSIX sh: update-lib.sh, update-api.sh, update-version.sh
+  frontend/                 React: UpdateModal, UpdateBanner, useUpdateState, api, types
 www-next/                   React UI source (Vite + Tailwind + TypeScript)
   src/
     api/                    API client and TypeScript types
     components/             React components (Map, HUD, Dashboard, Settings, Help)
       hud/                  HUD sub-components (CesiumScene, PitchLadder, tapes, StatusBar)
       ui/                   Reusable UI (Button, Card, Badge, Modal)
-      UpdateBanner.tsx       Persistent update notification banner
-      UpdateModal.tsx        Branch-aware update execution modal
     hooks/                  useStatus, useLogStream, useAttitude, useLinkStats, useSatellites, useWeather
+    updateConfig.ts         Project-specific update config (name, repo URL)
     lib/                    Formatting utils, Zod schemas
 www/                        Built output (committed, served by uhttpd)
   index.html                SPA entry point
@@ -397,7 +399,7 @@ www/                        Built output (committed, served by uhttpd)
     api.cgi                 Service control + update management API
     logs.cgi                SSE log streaming
     logs-csv.cgi            StarNav log list, preview, download
-    version.cgi             Git version + update check
+    version.cgi             Git version + update check (sources shared library)
     update.cgi              SSE update progress streaming
 packages/                   Bundled .ipk files for offline install
 starlink-grpc-tools/        Starlink gRPC client (submodule)

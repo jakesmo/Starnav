@@ -7,7 +7,7 @@ import {
 } from "../api/client";
 import type { FlightLog, FlightLogTail } from "../api/types";
 import Card from "./ui/Card";
-import Button from "./ui/Button";
+import { Button } from "./ui/Button";
 
 export default function FlightLogs() {
   const [logs, setLogs] = useState<FlightLog[]>([]);

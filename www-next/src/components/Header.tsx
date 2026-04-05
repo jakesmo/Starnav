@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { Play, Square, RotateCw, RefreshCw } from "lucide-react";
-import { executeCommand, checkUpdate } from "../api/client";
-import Button from "./ui/Button";
+import { executeCommand } from "../api/client";
+import { checkUpdate } from "@update/api";
+import { Button } from "./ui/Button";
 import { cn } from "../lib/utils";
+import { updateConfig } from "../updateConfig";
 import type { LinkStats } from "../hooks/useLinkStats";
 import type { VersionInfo } from "../api/types";
 
@@ -65,10 +67,10 @@ export default function Header({
   };
 
   const versionHash =
-    version?.commit && version.commit !== "unknown" ? version.commit : null;
+    version?.current && version.current !== "unknown" ? version.current : null;
   const branch = version?.branch || "main";
   const isDevBranch = branch !== "main";
-  const repoUrl = "https://github.com/jack7169/Starnav";
+  const repoUrl = updateConfig.repoUrl;
 
   return (
     <header className="sticky top-0 z-50 bg-bg-secondary border-b border-border">

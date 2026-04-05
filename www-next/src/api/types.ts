@@ -160,9 +160,9 @@ export interface LogEntry {
 }
 
 export interface VersionInfo {
-  commit: string;
+  current: string;
+  latest: string;
+  branch: string;
   update_available: boolean;
-  remote_commit?: string;
-  branch?: string;
   last_checked?: number;
 }
