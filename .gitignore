@@ -1,1 +1,21 @@
 .DS_Store
+
+# Web UI build
+www-next/node_modules/
+www-next/dist/
+
+# Python
+__pycache__/
+*.pyc
+
+# Playwright test artifacts
+.playwright-mcp/
+
+# Source 3D models (compressed versions in www/models/)
+*.glb
+!www/models/*.glb
+
+# Development screenshots
+starnav-*.png
+# Captured aircraft data for local dev
+www-next/dev-data/

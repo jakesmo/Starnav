@@ -1,0 +1,44 @@
+{
+  "name": "starnav-ui",
+  "private": true,
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "rm -rf ../www/assets ../www/cesium",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.95.2",
+    "cesium": "^1.129.0",
+    "egm96-universal": "^1.1.1",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.7.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-leaflet": "^5.0.0",
+    "resium": "^1.17.2",
+    "satellite.js": "^5.0.0",
+    "sonner": "^2.0.7",
+    "vite-plugin-cesium": "^1.2.23",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.27.0",
+    "@tailwindcss/vite": "^4.1.8",
+    "@types/leaflet": "^1.9.18",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.5.2",
+    "eslint": "^9.27.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.1.0",
+    "tailwindcss": "^4.1.8",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.33.1",
+    "vite": "^6.3.5"
+  }
+}

@@ -1,0 +1,26 @@
+# StarNav Offline Package Bundle
+# Downloaded: 2026-03-29
+# Source: trainer7
+# Architecture: aarch64_cortex-a53
+# Kernel: 5.4.213
+#
+# Packages:
+#   git-http_2.43.2-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   git_2.43.2-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   libcurl4_8.6.0-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   libopenssl3_3.0.16-1_aarch64_cortex-a53.ipk
+#   libpython3-3.11_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   ntpd_4.2.8p17-1_aarch64_cortex-a53.ipk
+#   python3-base_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3-codecs_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3-ctypes_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3-email_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3-light_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3-logging_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3-multiprocessing_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3-openssl_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   python3_3.11.7-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#   zlib_1.2.13-1_aarch64_cortex-a53_neon-vfpv4.ipk
+#
+# To refresh: sh install.sh --refresh-packages
+# Then commit packages/ to git for offline installs on other devices.
